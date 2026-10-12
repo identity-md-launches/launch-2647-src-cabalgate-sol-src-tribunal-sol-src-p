@@ -33,34 +33,12 @@ interface IIntakeV2Mainnet {
     function callbackGas() external view returns (uint256);
 }
 
-/// @dev Stand-in for imd/acc's Stacker until it is deployed on mainnet: the same `credit` (pull the
-/// IMD from the hook, deposit it into the real sIMD vault for the trader).
-contract StackerStandIn {
-    IERC20 public immutable imd;
-    IERC4626 public immutable simd;
-    bool internal approved;
-
-    constructor(IERC20 imd_, IERC4626 simd_) {
-        imd = imd_;
-        simd = simd_;
-    }
-
-    function credit(address trader, uint256 amount) external returns (uint256 shares) {
-        imd.transferFrom(msg.sender, address(this), amount);
-        if (!approved) {
-            imd.approve(address(simd), type(uint256).max);
-            approved = true;
-        }
-        shares = simd.deposit(amount, trader);
-    }
-}
-
 /// Mainnet rehearsal on an Ethereum fork: the seven launch contracts with chain-1 settings (IMD as
 /// the oracle fee and the pool currency, 15-day seasons, credit gas 400k, the Letterbox buying the
 /// oracle fee with PLEA), the hook mined and deployed on the real PoolManager, trading opened, and
 /// every letter outcome driven through the real Intake v2, completed by impersonating its writer as
-/// the oracle plane does, with mainnet's 200k callback gas. Only the oracle signer is a test key, and
-/// imd/acc's Stacker (not deployed on mainnet yet) is a stand-in that deposits into the real sIMD.
+/// the oracle plane does, with mainnet's 200k callback gas. Only the oracle signer is a test key; the
+/// buys credit the real imd/acc Stacker (launch #1409), which deposits into the real sIMD.
 ///
 /// MAINNET_RPC_URL=https://ethereum-rpc.publicnode.com forge test --match-path test/fork/ForkMainnet.t.sol -vv
 contract ForkMainnetTest is Test {
@@ -69,6 +47,8 @@ contract ForkMainnetTest is Test {
     IERC20 constant IMD = IERC20(0xD34a99Bc0f67aE1bbd63C660e6d0b0dd03E263B7);
     IERC4626 constant SIMD = IERC4626(0x9Efa934D9fAd4AE28c998a40195646b965a97247);
     address constant POOL_MANAGER = 0x000000000004444c5dc75cB358380D2e3dE08A90;
+    /// @dev imd/acc's mainnet Stacker (launch #1409).
+    address constant STACKER = 0x06909F672301F28A810f78cfe7a754851269F4F0;
     bytes32 constant ACTION = "oracle.request@oracle-1";
     uint256 constant SEASON = 15 days;
     uint256 constant DEADMAN = 118_800;
@@ -83,7 +63,6 @@ contract ForkMainnetTest is Test {
     PleaLaunch launch;
     PleaHook hook;
     BuyRouter router;
-    StackerStandIn stacker;
     address owner = makeAddr("owner");
     address runner = makeAddr("runner");
     address[] w;
@@ -97,7 +76,6 @@ contract ForkMainnetTest is Test {
         }
         vm.createSelectFork(rpc);
         assertEq(block.chainid, 1);
-        stacker = new StackerStandIn(IMD, SIMD);
         _deploy();
         _deployHook();
         vm.prank(owner);
@@ -134,7 +112,7 @@ contract ForkMainnetTest is Test {
             address(distributor),
             POOL_MANAGER,
             address(IMD),
-            address(stacker),
+            STACKER,
             CREDIT_GAS,
             block.timestamp + 7 days,
             address(IMD),
@@ -148,7 +126,7 @@ contract ForkMainnetTest is Test {
     function _deployHook() internal {
         bytes memory code = abi.encodePacked(
             type(PleaHook).creationCode,
-            abi.encode(POOL_MANAGER, address(plea), address(IMD), address(stacker), owner, address(seasons), CREDIT_GAS)
+            abi.encode(POOL_MANAGER, address(plea), address(IMD), STACKER, owner, address(seasons), CREDIT_GAS)
         );
         assertEq(keccak256(code), launch.hookInitCodeHash());
         uint160 flags = launch.FLAGS();
@@ -270,7 +248,7 @@ contract ForkMainnetTest is Test {
         _buy(a, 50e18);
         console2.log("gas: buy (repeat)", g - gasleft());
         assertGt(SIMD.balanceOf(a), shares);
-        assertEq(IMD.allowance(address(hook), address(stacker)), 0, "exact approval per credit");
+        assertEq(IMD.allowance(address(hook), STACKER), 0, "exact approval per credit");
     }
 
     /// A raw letter on mainnet: the gate sells the writer's PLEA for exactly 0.75 IMD, pays the real

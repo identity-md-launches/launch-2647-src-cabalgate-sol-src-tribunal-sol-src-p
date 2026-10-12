@@ -40,8 +40,9 @@ abstract contract ManifestFixture is Test {
     address constant IMD = 0xD34a99Bc0f67aE1bbd63C660e6d0b0dd03E263B7;
     address constant SIGNER = 0x5598Aa9146215Bc13eb26f2c692Ad1461Fd32982;
     address constant POOL_MANAGER = 0x000000000004444c5dc75cB358380D2e3dE08A90;
-    /// @dev Placeholders until launch.json has them: the mainnet Stacker and START.
-    address constant STACKER = address(0x5743C3E7);
+    /// @dev imd/acc's mainnet Stacker (launch #1409, 2026-10-12).
+    address constant STACKER = 0x06909F672301F28A810f78cfe7a754851269F4F0;
+    /// @dev Placeholder until launch.json has it.
     uint256 constant START = 1791817200;
     uint256 constant SEASON = 15 days;
     uint256 constant CREDIT_GAS = 400_000;

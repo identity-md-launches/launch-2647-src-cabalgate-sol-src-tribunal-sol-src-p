@@ -204,7 +204,7 @@ Then:
 | Oracle fee asset and pool IMD | IMD `0xd34a99bc0f67ae1bbd63c660e6d0b0dd03e263b7` |
 | Oracle signer | `0x5598aa9146215bc13eb26f2c692ad1461fd32982` |
 | PoolManager | `0x000000000004444c5dc75cB358380D2e3dE08A90` |
-| Stacker | **TODO**: imd/acc's mainnet Stacker |
+| Stacker | `0x06909f672301f28a810f78cfe7a754851269f4f0` (imd/acc launch #1409, live since 2026-10-12) |
 | Season | 15 days |
 | Dead-man | 33 hours |
 | Plea timings | 20 min, 7 min, 4 h |
@@ -220,7 +220,7 @@ SEPOLIA_RPC_URL=https://ethereum-sepolia-rpc.publicnode.com forge test --match-p
 MAINNET_RPC_URL=https://ethereum-rpc.publicnode.com forge test --match-path test/fork/ForkMainnet.t.sol -vv
 ```
 
-`test/fork/ForkMainnet.t.sol` does the same on an Ethereum fork with chain-1 settings, against the real IMD, sIMD, PoolManager and Intake v2 (its price for a question is the gate's 0.5 IMD, and its 200k callback gas carries the verdict with room to spare): a letter buys the oracle fee and the tip with PLEA, a runner delivers it, a typed `letter(text)` is denied, appealed and refunded, and a site plea pays the fee in IMD. imd/acc's mainnet Stacker is not deployed yet, so a stand-in deposits into the real sIMD. `test/LetterboxInvariant.t.sol` runs random letters, appeals, verdicts, failures, deliveries, sales, settles and strangers' attempts in both the Sepolia and the mainnet fee modes, and checks that the Letterbox holds exactly its open escrows and tips, that every escrow ends once (sold only after an approval, otherwise refunded to its writer), and that no writer's PLEA moves except through their own letters.
+`test/fork/ForkMainnet.t.sol` does the same on an Ethereum fork with chain-1 settings, against the real IMD, sIMD, PoolManager and Intake v2 (its price for a question is the gate's 0.5 IMD, and its 200k callback gas carries the verdict with room to spare): a letter buys the oracle fee and the tip with PLEA, a runner delivers it, a typed `letter(text)` is denied, appealed and refunded, and a site plea pays the fee in IMD. The buys credit the real imd/acc mainnet Stacker, which deposits into the real sIMD. `test/LetterboxInvariant.t.sol` runs random letters, appeals, verdicts, failures, deliveries, sales, settles and strangers' attempts in both the Sepolia and the mainnet fee modes, and checks that the Letterbox holds exactly its open escrows and tips, that every escrow ends once (sold only after an approval, otherwise refunded to its writer), and that no writer's PLEA moves except through their own letters.
 
 The season length and the dead-man are constructor values so a testnet can run a fast clock. On Ethereum mainnet the gate refuses anything below 15 days and 33 hours.
 
