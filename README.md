@@ -229,6 +229,20 @@ forge test --isolate --match-path test/Launch.t.sol   # each call as its own tra
 
 `foundry.toml` turns off forge's lint-on-build (`[lint] lint_on_build = false`). With it on, the linter runs out of memory on `PleaHook`.
 
+**Gas per flow** (`test_gasBenchmark` in the fork rehearsal: Ethereum's gas schedule against the live Sepolia contracts, 280-byte texts with quotes):
+
+| Flow | Gas |
+|---|---|
+| Buy (first, sIMD cashback included) | 0.94M |
+| Plea from the site | 0.76M |
+| Letter (a typical ~85-byte letter: 1.28M) | 1.46M |
+| Appeal letter | 1.75M |
+| Verdict delivery (the Intake's callback) | 0.19M |
+| Sale from the site / `deliver` of a letter (records the points) | 0.60M / 0.83M |
+| `record` | 0.21M |
+
+The mainnet gas pass (escaping only the plea texts in the oracle question, unchecked byte reads in the text rules, the hook's price views reading one checkpoint, a one-slot escrow) cut these by up to half without changing any behaviour; `test/GasPass.t.sol` holds each change to the code it replaced.
+
 ---
 
 ## Design notes
