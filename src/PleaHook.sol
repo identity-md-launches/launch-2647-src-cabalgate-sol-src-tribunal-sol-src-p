@@ -67,7 +67,6 @@ contract PleaHook {
     event Trimmed(uint128 liquidityRemoved, uint256 pleaBurned, uint256 imdRetained);
     event WallDeployed(int24 tickLower, int24 tickUpper, uint128 liquidity, uint256 imdDeployed);
     event WallSettled(uint128 liquidity, uint256 pleaBurned, uint256 imdReturned);
-    event KeeperTipPaid(address indexed keeper, uint256 amount);
     event PriceCheckpoint(uint64 hour, uint256 priceX96);
 
     uint256 public constant BPS = 10_000;
@@ -88,9 +87,8 @@ contract PleaHook {
     uint256 public constant MIN_TRIM = 1e18;
     uint256 public constant WALL_THRESHOLD = 1e18; // retained IMD worth a rebalance
     uint256 public constant WALL_MIN_FILL = 1_000e18; // PLEA bought by the wall worth a settle
-    uint256 public constant KEEPER_TIP = 1e16; // 0.01 IMD
-    uint256 public constant TIP_MIN_WORK = 100e18; // a tipped rebalance moves at least 100 IMD
-    uint256 public constant TIP_INTERVAL = 1 hours;
+    /// @notice Gas lent to a router's `msgSender()` when a swap carries no hookData.
+    uint256 public constant MSG_SENDER_GAS = 30_000;
     /// @notice Gas a swap must still have when it reaches `beforeSwap`, on top of `creditGas`: the
     /// rest of the swap (fees, cap, checkpoints) plus slack. Checked first, so the minimum a gas
     /// estimate finds is set here and small state changes before inclusion only eat slack.
@@ -114,6 +112,8 @@ contract PleaHook {
     address public immutable plea;
     IERC20 public immutable imd;
     IStacker public immutable stacker;
+    /// @notice The sIMD vault behind the Stacker: never a valid cashback recipient.
+    address public immutable simd;
     address public immutable owner;
     /// @notice Seasons: receives the 0.25% prize fee.
     address public immutable seasons;
@@ -175,7 +175,6 @@ contract PleaHook {
     int24 public wallGuardTick;
     uint256 private lastGuardAt;
     uint256 private guardRemainder;
-    uint256 public lastTipAt;
     /// @notice IMD the current wall was deployed with (what it has spent so far is `wallImd - imdInWall`).
     uint256 public wallImd;
     bool private callbackExpected;
@@ -199,6 +198,7 @@ contract PleaHook {
         plea = plea_;
         imd = imd_;
         stacker = stacker_;
+        simd = _vaultOf(stacker_);
         owner = owner_;
         seasons = seasons_;
         creditGas = creditGas_;
@@ -442,13 +442,11 @@ contract PleaHook {
         // buys have their whole PLEA output taken by the hook and delivered as ERC-20 in afterSwap; an
         // exact-output buy fixes the swapper's PLEA delta at the requested amount, so it is refused.
         if (buy && !exactIn && alive) revert ExactOutputBuyRefused();
-        // The recipient comes from hookData (abi.encode(address)); otherwise it is the swap sender.
-        address trader;
-        if (hookData.length == 32) trader = abi.decode(hookData, (address));
-        if (trader == address(0)) {
-            if (buy) revert RecipientRequired();
-            trader = sender;
-        }
+        // The trader: hookData (abi.encode(address)), else the router's `msgSender()`, else a plain
+        // wallet that called the PoolManager itself; never a router. Zero means no cashback and no
+        // buy record; a buy while the Cabal watches needs a recipient for its PLEA, so it reverts.
+        address trader = _resolveTrader(sender, hookData);
+        if (trader == address(0) && buy && alive) revert RecipientRequired();
         uint256 amount = exactIn ? uint256(-params.amountSpecified) : uint256(params.amountSpecified);
         bool specifiedIsImd = buy == exactIn;
         uint256 rate = specifiedIsImd ? _imdRate(buy) : PLEA_BURN_BPS;
@@ -503,7 +501,10 @@ contract PleaHook {
         // The specified-side fee was taken on the requested amount; charge it on the fill only.
         uint256 specDue = specAmt * (specifiedIsImd ? _imdRate(buy) : PLEA_BURN_BPS) / BPS;
         if (specDue > specFee) specDue = specFee;
-        if (specFee > specDue) _refund(trader, specifiedIsImd, specFee - specDue);
+        if (specFee > specDue) {
+            if (trader != address(0)) _refund(trader, specifiedIsImd, specFee - specDue);
+            else _keep(specifiedIsImd, specFee - specDue);
+        }
 
         uint256 imdBasis;
         uint256 imdFee;
@@ -532,7 +533,9 @@ contract PleaHook {
             ret = int128(int256(imdFee));
         }
         uint256 cashback = _payFees(trader, buy, imdBasis, imdFee, pleaFee);
-        _updateBasis(trader, buy, imdBasis + imdFee, buy ? pleaAmt - pleaFee : pleaAmt + pleaFee);
+        if (trader != address(0)) {
+            _updateBasis(trader, buy, imdBasis + imdFee, buy ? pleaAmt - pleaFee : pleaAmt + pleaFee);
+        }
 
         _applyCap();
         _updateWallGuard(currentTick());
@@ -563,7 +566,8 @@ contract PleaHook {
         }
         uint256 toPrize;
         if (imdFee != 0) {
-            cashback = imdBasis * CASHBACK_BPS / BPS;
+            // No resolved trader (a router that cannot name its caller): the cashback stays in the pool.
+            cashback = trader == address(0) ? 0 : imdBasis * CASHBACK_BPS / BPS;
             uint256 toOwner = imdBasis * OWNER_BPS / BPS;
             // No seasons after the Cabal dies: the prize share joins pool liquidity.
             if (_alive()) toPrize = imdBasis * PRIZE_BPS / BPS;
@@ -617,6 +621,55 @@ contract PleaHook {
             poolManager.mint(trader, _id(address(imd)), amount);
             emit FeeRefunded(trader, address(imd), amount, true);
         }
+    }
+
+    /// @dev A fee surplus nobody can be refunded to (no trader resolved): IMD joins the pool share,
+    /// PLEA is burned.
+    function _keep(bool isImd, uint256 amount) internal {
+        if (isImd) {
+            poolManager.mint(address(this), _id(address(imd)), amount);
+            retainClaims += amount;
+            totalPoolFees += amount;
+        } else {
+            poolManager.take(Currency.wrap(plea), address(this), amount);
+            IPLEA(plea).burn(amount);
+            totalBurned += amount;
+        }
+    }
+
+    /// @dev The Stacker's sIMD vault, or zero when the Stacker does not expose `SIMD()` (a launch
+    /// rehearsal with a placeholder address): the constructor must not depend on a live call.
+    function _vaultOf(IStacker stacker_) internal view returns (address) {
+        (bool ok, bytes memory ret) = address(stacker_).staticcall(abi.encodeCall(IStacker.SIMD, ()));
+        if (!ok || ret.length != 32) return address(0);
+        uint256 word = abi.decode(ret, (uint256));
+        return word > type(uint160).max ? address(0) : address(uint160(word));
+    }
+
+    /// @dev imd/acc's trader rule: (1) `hookData` = abi.encode(trader); (2) else the router's
+    /// `msgSender()`, the wallet it is acting for in this swap; (3) else the sender itself, only when
+    /// it is a plain wallet. Never a router, never `tx.origin`, never the Stacker, the IMD token, the
+    /// sIMD vault, the PoolManager or this hook. Zero when nothing resolves.
+    function _resolveTrader(address sender, bytes calldata hookData) internal view returns (address trader) {
+        if (hookData.length == 32) {
+            trader = abi.decode(hookData, (address));
+            if (_validTrader(trader, sender)) return trader;
+        }
+        if (sender.code.length == 0) return _validTrader(sender, sender) ? sender : address(0);
+        (bool ok, bytes memory ret) = sender.staticcall{gas: MSG_SENDER_GAS}(abi.encodeWithSignature("msgSender()"));
+        if (!ok || ret.length != 32) return address(0);
+        uint256 word = abi.decode(ret, (uint256));
+        if (word > type(uint160).max) return address(0);
+        trader = address(uint160(word));
+        return _validTrader(trader, sender) ? trader : address(0);
+    }
+
+    function _validTrader(address t, address sender) internal view returns (bool) {
+        if (
+            t == address(0) || t == address(stacker) || t == address(imd) || t == simd || t == address(this)
+                || t == address(poolManager)
+        ) return false;
+        return !(t == sender && sender.code.length != 0);
     }
 
     function _checkMaxBuy(uint256 pleaAmount) internal view {
@@ -740,15 +793,14 @@ contract PleaHook {
     // ------------------------------------------------------------------ wall
 
     /// @notice Permissionless: redeems the pool share's claims, settles a filled wall (burning the
-    /// PLEA it bought) and redeploys all retained IMD as one IMD-only band just below the price. Pays
-    /// the caller 0.01 IMD at most once an hour, and only when the call moved at least 100 IMD.
+    /// PLEA it bought) and redeploys all retained IMD as one IMD-only band just below the price. It
+    /// pays the caller nothing: the wall's IMD never leaves the pool.
     function rebalance() external {
         if (!pendingRebalance()) revert RebalanceNotNeeded();
         (uint256 work, bool acted) = abi.decode(_unlock(abi.encode(ACTION_REBALANCE, "")), (uint256, bool));
         // Nothing settled, no wall closed and none deployed (the band cannot be placed while the
         // price sits at a tick extreme): the call did no work.
         if (work == 0 && !acted) revert RebalanceNotNeeded();
-        _payTip(msg.sender, work);
     }
 
     /// @return work IMD value actually handled: claims redeemed, what the wall spent buying PLEA and
@@ -768,7 +820,7 @@ contract PleaHook {
         uint256 back = _closeWall();
         if (deployed != 0) acted = true;
         if (deployed > back) work += deployed - back;
-        uint256 amount = retainedImd > KEEPER_TIP ? retainedImd - KEEPER_TIP : 0;
+        uint256 amount = retainedImd;
         if (amount == 0) return (work, acted);
         int24 spot = currentTick();
         _updateWallGuard(spot);
@@ -840,18 +892,6 @@ contract PleaHook {
     function fundWall(uint256 amount) external {
         imd.safeTransferFrom(msg.sender, address(this), amount);
         retainedImd += amount;
-    }
-
-    /// @dev The owner gets no tip: the wall's IMD never comes back to the team.
-    function _payTip(address keeper, uint256 work) internal {
-        uint256 tip = KEEPER_TIP;
-        if (keeper == owner || keeper == IPLEA(plea).owner()) return;
-        if (work < TIP_MIN_WORK || block.timestamp < lastTipAt + TIP_INTERVAL || retainedImd < tip) return;
-        lastTipAt = block.timestamp;
-        retainedImd -= tip;
-        (bool ok,) = address(imd).call(abi.encodeCall(IERC20.transfer, (keeper, tip)));
-        if (!ok) retainedImd += tip;
-        else emit KeeperTipPaid(keeper, tip);
     }
 
     // ------------------------------------------------------------------ unlock plumbing

@@ -49,6 +49,10 @@ contract MockStacker {
         simd = simd_;
     }
 
+    function SIMD() external view returns (address) {
+        return address(simd);
+    }
+
     function setBurnAllGas(bool b) external {
         burnAllGas = b;
     }
@@ -262,5 +266,59 @@ contract MockIntake {
             }
             lastCallbackGasUsed = g - gasleft();
         }
+    }
+}
+
+/// @dev A router that names the wallet it acts for, like the Universal Router: `msgSender()` returns
+/// the caller for the duration of its swap and zero outside one.
+contract MsgSenderRouter {
+    IPoolManager public pm;
+    PleaHook public hook;
+    IERC20 public imd;
+    IERC20 public plea;
+    address private _caller;
+
+    constructor(IPoolManager pm_, PleaHook hook_, IERC20 imd_, IERC20 plea_) {
+        pm = pm_;
+        hook = hook_;
+        imd = imd_;
+        plea = plea_;
+    }
+
+    function msgSender() external view returns (address) {
+        return _caller;
+    }
+
+    /// @return out What the router itself could take for the caller (zero for a buy while the Cabal
+    /// lives, since the hook delivers the PLEA straight to the trader).
+    function swap(bool buy, uint256 amountIn, bytes memory hookData) external returns (uint256 out) {
+        _caller = msg.sender;
+        out = abi.decode(pm.unlock(abi.encode(msg.sender, buy, -int256(amountIn), hookData)), (uint256));
+        _caller = address(0);
+    }
+
+    function unlockCallback(bytes calldata raw) external returns (bytes memory) {
+        require(msg.sender == address(pm), "pm");
+        (address payer, bool buy, int256 amountSpecified, bytes memory hookData) =
+            abi.decode(raw, (address, bool, int256, bytes));
+        PoolKey memory key = hook.poolKey();
+        bool pleaIsZero = hook.pleaIsZero();
+        bool zeroForOne = buy ? !pleaIsZero : pleaIsZero;
+        uint160 limit = zeroForOne ? TickMath.MIN_SQRT_PRICE + 1 : TickMath.MAX_SQRT_PRICE - 1;
+        BalanceDelta d = pm.swap(
+            key,
+            SwapParams({zeroForOne: zeroForOne, amountSpecified: amountSpecified, sqrtPriceLimitX96: limit}),
+            hookData
+        );
+        (int128 pleaDelta, int128 imdDelta) = pleaIsZero ? (d.amount0(), d.amount1()) : (d.amount1(), d.amount0());
+        (IERC20 tokenIn, int128 inDelta, IERC20 tokenOut, int128 outDelta) =
+            buy ? (imd, imdDelta, plea, pleaDelta) : (plea, pleaDelta, imd, imdDelta);
+        uint256 amountIn = uint256(uint128(-inDelta));
+        uint256 amountOut = uint256(uint128(outDelta));
+        pm.sync(Currency.wrap(address(tokenIn)));
+        tokenIn.transferFrom(payer, address(pm), amountIn);
+        pm.settle();
+        if (amountOut != 0) pm.take(Currency.wrap(address(tokenOut)), payer, amountOut);
+        return abi.encode(amountOut);
     }
 }

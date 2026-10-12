@@ -201,23 +201,30 @@ contract AuditRevisionTest is Fixture {
         gate.appeal(id, amt7, "Too late to retry.");
     }
 
-    function test_deadCabalBuyStillRequiresARecipient() public {
+    /// After the Cabal dies a buy without a recipient goes through with plain v4 accounting: no
+    /// cashback, no buy record, nothing to the router. A named recipient is still credited.
+    function test_deadCabalBuyWithoutARecipientSkipsTheCashback() public {
         buy(bob, 50e18);
         skip(DEADMAN + 1);
+        uint256 cashback = hook.totalCashback();
         vm.prank(alice);
-        vm.expectRevert(); // v4 wraps the hook's RecipientRequired error
-        router.buyExactIn(10e18, "");
-        buy(alice, 10e18);
-        assertGt(simd.balanceOf(alice), 0);
+        uint256 got = router.buyExactIn(10e18, "");
+        assertGt(got, 0);
+        assertEq(hook.totalCashback(), cashback, "no cashback without a trader");
+        assertEq(simd.balanceOf(alice), 0);
         assertEq(simd.balanceOf(address(router)), 0);
         (, uint256 held,) = hook.basisOf(alice);
-        assertEq(held, plea.balanceOf(alice));
+        assertEq(held, 0, "no buy record without a trader");
+        buy(alice, 10e18);
+        assertGt(simd.balanceOf(alice), 0);
+        (, held,) = hook.basisOf(alice);
+        assertEq(held, plea.balanceOf(alice) - got);
         vm.prank(alice);
-        vm.expectRevert();
         router.buyExactOut(1e18, "");
         vm.prank(alice);
         router.buyExactOut(1e18, abi.encode(alice));
         assertEq(simd.balanceOf(address(router)), 0);
+        assertEq(imd.balanceOf(address(router)), 0);
     }
 
     function test_sameSecondCapRatchetsCannotReuseFractionalBudget() public {

@@ -7,4 +7,6 @@ pragma solidity 0.8.26;
 /// (0x0457276d7b036818b3eddc1a4a3fceda61e9314d).
 interface IStacker {
     function credit(address to, uint256 amount) external;
+    /// @notice The sIMD vault the Stacker deposits into.
+    function SIMD() external view returns (address);
 }

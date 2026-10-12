@@ -99,32 +99,16 @@ contract HookAdversarialTest is SepoliaFixture {
         assertFalse(hook.pendingRebalance());
     }
 
-    function test_keeperTipsRequireWorkAndRespectTheOneHourCooldown() public {
+    function test_rebalancePaysNoTipAndDeploysTheWholeReserve() public {
         vm.startPrank(alice);
         imd.approve(address(hook), type(uint256).max);
-        hook.fundWall(99e18);
+        hook.fundWall(200e18);
         vm.stopPrank();
+        uint256 reserve = hook.retainedImd();
         vm.prank(keeper);
         hook.rebalance();
-        assertEq(imd.balanceOf(keeper), 0);
-        vm.prank(alice);
-        hook.fundWall(200e18);
-        vm.prank(keeper);
-        hook.rebalance();
-        assertEq(imd.balanceOf(keeper), 1e16);
-        uint256 paidAt = hook.lastTipAt();
-        vm.prank(alice);
-        hook.fundWall(200e18);
-        vm.prank(keeper);
-        hook.rebalance();
-        assertEq(imd.balanceOf(keeper), 1e16);
-        assertEq(hook.lastTipAt(), paidAt);
-        vm.warp(paidAt + 1 hours);
-        vm.prank(alice);
-        hook.fundWall(200e18);
-        vm.prank(keeper);
-        hook.rebalance();
-        assertEq(imd.balanceOf(keeper), 2e16);
+        assertEq(imd.balanceOf(keeper), 0, "no keeper tip");
+        assertGe(hook.retainedImd() + hook.wallImd(), reserve, "the whole reserve is kept or deployed");
         assertEq(imd.balanceOf(address(hook)), hook.retainedImd());
     }
 

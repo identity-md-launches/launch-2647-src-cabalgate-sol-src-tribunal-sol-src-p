@@ -304,7 +304,11 @@ contract LetterboxTest is Fixture {
         uint256 id = letter(alice, "A tenth for my rent this month; the rest stays in my wallet for good.");
         answer(id, 0);
         letterbox.settle(id);
-        assertLt(imd.balanceOf(address(seasons)) - pot, AUTO_SELL_FEE, "no auto-sell fee without a sale (only the trade's prize share)");
+        assertLt(
+            imd.balanceOf(address(seasons)) - pot,
+            AUTO_SELL_FEE,
+            "no auto-sell fee without a sale (only the trade's prize share)"
+        );
         // The site's auto-sell: an amount worth less than 0.70 IMD at the snapshot is refused.
         uint256 price = hook.latestPrice();
         uint256 tooSmall = (0.7e18 - 1) * (1 << 96) / price;
@@ -641,7 +645,7 @@ contract LetterboxTest is Fixture {
     }
 }
 
-/// The owner of PLEA does not play: no points, prizes, bonus or keeper tips.
+/// The owner of PLEA does not play: no points, prizes or bonus.
 contract OwnerExclusionTest is Fixture {
     function setUp() public virtual override {
         super.setUp();
@@ -664,25 +668,15 @@ contract OwnerExclusionTest is Fixture {
         assertFalse(seasons.recorded(id));
     }
 
-    function _fillWallReserve() internal {
+    function test_nobodyGetsAKeeperTip() public {
         imd.mint(address(this), 200e18);
         imd.approve(address(hook), 200e18);
         hook.fundWall(200e18);
         assertTrue(hook.pendingRebalance());
-    }
-
-    function test_ownerGetsNoKeeperTip() public {
-        uint256 snap = vm.snapshotState();
-        _fillWallReserve();
+        uint256 before = imd.balanceOf(keeper);
         vm.prank(keeper);
         hook.rebalance();
-        assertEq(imd.balanceOf(keeper), hook.KEEPER_TIP(), "anyone else is tipped");
-        vm.revertToState(snap);
-        _fillWallReserve();
-        uint256 before = imd.balanceOf(OWNER);
-        vm.prank(OWNER);
-        hook.rebalance();
-        assertEq(imd.balanceOf(OWNER), before, "no tip for the owner");
+        assertEq(imd.balanceOf(keeper), before, "rebalance pays no tip to anyone");
     }
 }
 
