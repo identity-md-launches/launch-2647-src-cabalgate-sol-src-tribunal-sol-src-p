@@ -210,8 +210,11 @@ Then:
 **Open question before mainnet:** the seven-contract manifest rehearsal reports **24,475,795 gas**, a margin of **−7,698,579** against Ethereum's 16,777,216 per-transaction cap. Whether IMD's mainnet factory deploy is bound by that cap is asked of IMD; if it is, the launch must be split (or code moved out of the launch transaction). This local measurement includes harness overhead and excludes transaction intrinsic gas. `test/fork/ForkTestnet.t.sol` rehearses the same code on a Sepolia fork against the live Intake v2:
 
 ```
-SEPOLIA_RPC_URL=https://ethereum-sepolia-rpc.publicnode.com forge test --match-path 'test/fork/*' -vv
+SEPOLIA_RPC_URL=https://ethereum-sepolia-rpc.publicnode.com forge test --match-path test/fork/ForkTestnet.t.sol -vv
+MAINNET_RPC_URL=https://ethereum-rpc.publicnode.com forge test --match-path test/fork/ForkMainnet.t.sol -vv
 ```
+
+`test/fork/ForkMainnet.t.sol` does the same on an Ethereum fork with chain-1 settings, against the real IMD, sIMD, PoolManager and Intake v2 (its price for a question is the gate's 0.5 IMD, and its 200k callback gas carries the verdict with room to spare): a letter buys the oracle fee and the tip with PLEA, a runner delivers it, a typed `letter(text)` is denied, appealed and refunded, and a site plea pays the fee in IMD. imd/acc's mainnet Stacker is not deployed yet, so a stand-in deposits into the real sIMD. `test/LetterboxInvariant.t.sol` runs random letters, appeals, verdicts, failures, deliveries, sales, settles and strangers' attempts in both the Sepolia and the mainnet fee modes, and checks that the Letterbox holds exactly its open escrows and tips, that every escrow ends once (sold only after an approval, otherwise refunded to its writer), and that no writer's PLEA moves except through their own letters.
 
 The season length and the dead-man are constructor values so a testnet can run a fast clock. On Ethereum mainnet the gate refuses anything below 15 days and 33 hours.
 
