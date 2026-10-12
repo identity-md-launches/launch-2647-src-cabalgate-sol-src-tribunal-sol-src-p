@@ -161,9 +161,10 @@ contract CabalGate is OracleAttestationConsumer {
     mapping(address => uint256) public lastLapsedAt;
     /// @notice Each seller's newest plea or appeal (what a letter's APPEAL refers to).
     mapping(address => uint256) public lastPleaOf;
-    /// @dev The pre-escrow balance used to validate a plea. An appeal's minimum cannot grow
-    /// beyond the original basis when its seller acquires more PLEA after the denial.
-    mapping(uint256 => uint256) private pleaBalance;
+    /// @notice The pre-escrow balance a plea was validated and scored against. An appeal's minimum
+    /// cannot grow beyond the original basis when its seller acquires more PLEA after the denial,
+    /// and the Letterbox keeps an appeal's share of the balance at most the original's.
+    mapping(uint256 => uint256) public pleaBalance;
     bool private callbackExpected;
 
     constructor(

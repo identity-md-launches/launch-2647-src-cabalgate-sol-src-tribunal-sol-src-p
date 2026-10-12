@@ -163,7 +163,9 @@ contract LetterboxTest is Fixture {
         uint256 a = gate.lastPleaOf(bob);
         assertTrue(gate.getPlea(a).isAppeal);
         assertEq(gate.getPlea(a).originalId, typed);
-        assertEq(gate.getPlea(a).amount, t.amount);
+        // The same share of the balance as the original (slightly less PLEA: the fee sale shrank it).
+        assertLe(gate.getPlea(a).amount, t.amount);
+        assertLe(gate.getPlea(a).amount * 10_000 / gate.pleaBalance(a), 2_000, "still the 20% share band");
         assertEq(gate.getPlea(a).text, "Plainly: the laptop is how I work, and I keep the rest.");
         answer(a, 45);
         uint256 imdBefore = imd.balanceOf(bob);
@@ -385,7 +387,7 @@ contract LetterboxTest is Fixture {
 
     // ---------------------------------------------------------------- appeals
 
-    function test_appealByLetterUsesTheOriginalAmountAndPaysTheWall() public {
+    function test_appealByLetterKeepsTheOriginalShareAndPaysTheWall() public {
         uint256 id = letter(alice, "A tenth for school books; the rest is not for sale.");
         uint256 amount = gate.getPlea(id).amount;
         answer(id, 0);
@@ -394,7 +396,9 @@ contract LetterboxTest is Fixture {
         CabalGate.Plea memory p = gate.getPlea(a);
         assertTrue(p.isAppeal);
         assertEq(p.originalId, id);
-        assertEq(p.amount, amount);
+        assertLe(p.amount, amount, "at most the original amount: the original's share of the shrunk balance");
+        assertGt(p.amount * 1000, amount * 990, "within 1% of it");
+        assertLe(p.amount * 10_000 / gate.pleaBalance(a), 2_000, "still the 20% share band");
         assertEq(p.text, "I was too brief: the books cost 40 IMD and I keep the rest.");
         assertEq(hook.retainedImd() - wall, 0.35e18, "the wall share");
         assertEq(imd.balanceOf(address(letterbox)), TIP);

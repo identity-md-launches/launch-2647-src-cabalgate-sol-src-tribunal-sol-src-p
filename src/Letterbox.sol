@@ -289,6 +289,14 @@ contract Letterbox is ReentrancyGuardTransient {
         uint256 bal = plea.balanceOf(writer);
         // The original amount, or the gate's 50% of the balance when the fee sales left less.
         if (amount > bal * MAX_SHARE_BPS / BPS) amount = bal * MAX_SHARE_BPS / BPS;
+        // Never a larger share of the balance than the original plea had: the fee sale of a 20% letter
+        // shrinks the balance, and the same amount would otherwise fall into the next share band
+        // (18 -> 11 points, need 33 -> 40). The gate allows a smaller appeal amount.
+        uint256 origBal = gate.pleaBalance(originalId);
+        if (origBal != 0) {
+            uint256 sameShare = FullMath.mulDiv(bal, gate.getPlea(originalId).amount, origBal);
+            if (amount > sameShare) amount = sameShare;
+        }
         _requireWorthTheFee(amount);
         (uint256 feeImd, uint256 maxFeePlea) = feesFor(true);
         // The fees may take 10% of the balance, or up to the appeal's own amount when that is more:

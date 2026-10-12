@@ -105,6 +105,24 @@ contract JudgeFindingsTest is Fixture {
         assertEq(uint8(gate.getPlea(id).status), uint8(CabalGate.Status.Executed));
     }
 
+    /// Live run 3 (Sepolia, 2026-10-12): a 20% letter's fee sale shrank the balance, so the APPEAL letter
+    /// for the same amount fell into the next share band (fact 30, need 40 instead of 33). The appeal
+    /// now keeps the original's share of the balance.
+    function test_appealLetterKeepsTheOriginalShareBand() public {
+        buy(alice, 20e18);
+        skip(1 days);
+        uint256 id = _letter(alice, "A fifth for the electrician; the rest stays until the lights go out.");
+        CabalGate.Plea memory p = gate.getPlea(id);
+        assertEq(p.need, 70 - p.factScore);
+        uint8 need = p.need;
+        require(answer(id, 0), "verdict");
+        uint256 ap = _letter(alice, "APPEAL The electrician does not wait; the rest still stays.");
+        CabalGate.Plea memory a = gate.getPlea(ap);
+        assertEq(a.need, need, "the appeal is judged against the same need as the plea");
+        assertLt(a.amount, p.amount, "a slightly smaller amount keeps the share band");
+        assertLe(a.amount * 10_000 / gate.pleaBalance(ap), 2_000, "still in the 20% band");
+    }
+
     /// Finding 2: a writer worth a few IMD can plead by letter and then appeal by letter.
     function test_aSmallWriterCanAppealByLetter() public {
         buy(smallHolder, 5e18);
