@@ -210,7 +210,8 @@ contract AtomicManifestTest is ManifestFixture {
     function test_launchJsonEncodesOracleMintFlagAsStaticWord() public view {
         string memory json = vm.readFile("launch.json");
         string memory flag = vm.parseJsonString(json, ".contracts[4].constructorArgs[10]");
-        assertEq(flag, "1", "the Sepolia mint flag must be the static bool word 1");
+        // Mainnet: the Letterbox buys the oracle fee with PLEA, so the flag is the static bool word 0.
+        assertEq(flag, MINT_ORACLE_FEE ? "1" : "0", "the mint flag must be the static bool word 0 or 1");
         assertEq(abi.encode(vm.parseUint(flag)), abi.encode(MINT_ORACLE_FEE));
     }
 
