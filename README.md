@@ -182,22 +182,24 @@ Then:
 
 2. **Open trading.** `PleaLaunch.seed()` creates the pool at a 5,700 IMD market cap and starts the Cabal. The owner may call it any time, and anyone may call it once `START` has passed.
 
-**Sepolia test run 3** (`launch.json` on this branch, `testnet3`; `testnet` is run 2's source, the `mainnet` branch has the mainnet draft, `main` keeps launch #1242):
+**Ethereum mainnet draft** (`launch.json` on this branch, `mainnet`; `testnet3` is Sepolia test run 3 with the same code, `testnet` is run 2's source, `main` keeps launch #1242):
 
 | Setting | Value |
 |---|---|
 | Intake v2 | `0xa43e6f75ee006411f79ac1c84120606c2330de82` |
-| Oracle fee asset | test IMD `0x44a1cd38474fb1748400e7deb5f8d786cce3f89a` (open `mint`) |
-| Pool IMD | TestIMD `0x2b69099e59b05901faa1dd164fabf098bf831e82` |
-| Stacker | `0x0457276d7b036818b3eddc1a4a3fceda61e9314d` (imd/acc launch #1294) |
-| Season | 5 hours (fast clock for testing) |
-| Dead-man | 33 hours (real) |
-| Plea timings | real (20 min, 7 min, 4 h) |
-| `START` | 1792162800 (Fri 2026-10-16 15:00 UTC; the owner may seed earlier) |
-| Cashback credit gas | 1,300,000 (Sepolia's gas schedule) |
-| Letterbox | mints the 0.5 test oracle fee itself (`mintOracleFee = true`; refused on chain id 1, where the fee is bought with PLEA like the tip) |
+| Oracle fee asset and pool IMD | IMD `0xd34a99bc0f67ae1bbd63c660e6d0b0dd03e263b7` |
+| Oracle signer | `0x5598aa9146215bc13eb26f2c692ad1461fd32982` |
+| PoolManager | `0x000000000004444c5dc75cB358380D2e3dE08A90` |
+| Stacker | **TODO**: imd/acc's mainnet Stacker |
+| Season | 15 days |
+| Dead-man | 33 hours |
+| Plea timings | 20 min, 7 min, 4 h |
+| `START` | **TODO** (the owner may seed earlier) |
+| Cashback credit gas | 400,000 (a first credit measured 197k–249k on a mainnet fork) |
+| Letterbox | buys the 0.5 IMD oracle fee with the writer's PLEA, with the tip (`mintOracleFee = false`) |
+| Owner | **TODO** (a fresh wallet; the owner cannot play seasons) |
 
-The seven-contract manifest rehearsal reports **24,298,045 gas**, a margin of **−7,520,829** against the 16,777,216 mainnet per-transaction cap. Sepolia accepts it in one transaction (launch #1242 used 81.8M there); the rehearsal reports the margin without enforcing the cap. This local measurement includes harness overhead and excludes transaction intrinsic gas; the deployment service must simulate the actual factory transaction. `test/fork/ForkTestnet.t.sol` rehearses the whole run on a Sepolia fork against the live Intake v2:
+**Open question before mainnet:** the seven-contract manifest rehearsal reports **24,297,886 gas**, a margin of **−7,520,670** against Ethereum's 16,777,216 per-transaction cap. Whether IMD's mainnet factory deploy is bound by that cap is asked of IMD; if it is, the launch must be split (or code moved out of the launch transaction). This local measurement includes harness overhead and excludes transaction intrinsic gas. `test/fork/ForkTestnet.t.sol` rehearses the same code on a Sepolia fork against the live Intake v2:
 
 ```
 SEPOLIA_RPC_URL=https://ethereum-sepolia-rpc.publicnode.com forge test --match-path 'test/fork/*' -vv

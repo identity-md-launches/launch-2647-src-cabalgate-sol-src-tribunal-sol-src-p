@@ -34,16 +34,18 @@ contract ManifestFactory {
 abstract contract ManifestFixture is Test {
     // Exact static constructor values from the supplied launch.json. Only $owner and earlier
     // contract references are resolved locally; no external contract is installed or called.
-    // Exact static constructor values from the supplied launch.json (Sepolia test run 2).
+    // Mainnet draft: IMD is both the oracle fee asset and the pool currency, so the Letterbox buys
+    // the oracle fee with PLEA (mintOracleFee = false).
     address constant INTAKE = 0xa43e6F75ee006411F79Ac1C84120606C2330DE82;
-    address constant ORACLE_ASSET = 0x44a1Cd38474FB1748400E7DEb5F8D786ccE3F89A;
-    address constant IMD = 0x2B69099E59b05901faA1DD164fabf098bf831E82;
+    address constant ORACLE_ASSET = 0xD34a99Bc0f67aE1bbd63C660e6d0b0dd03E263B7;
+    address constant IMD = 0xD34a99Bc0f67aE1bbd63C660e6d0b0dd03E263B7;
     address constant SIGNER = 0x5598Aa9146215Bc13eb26f2c692Ad1461Fd32982;
-    address constant POOL_MANAGER = 0xE03A1074c86CFeDd5C142C4F04F1a1536e203543;
-    address constant STACKER = 0x0457276D7b036818B3EddC1A4A3FCeda61e9314d;
-    uint256 constant START = 1792162800;
-    uint256 constant SEASON = 18_000;
-    uint256 constant CREDIT_GAS = 1_300_000;
+    address constant POOL_MANAGER = 0x000000000004444c5dc75cB358380D2e3dE08A90;
+    /// @dev Placeholders until launch.json has them: the mainnet Stacker and START.
+    address constant STACKER = address(0x5743C3E7);
+    uint256 constant START = 1791817200;
+    uint256 constant SEASON = 15 days;
+    uint256 constant CREDIT_GAS = 400_000;
 
     ManifestFactory factory;
     address owner;
@@ -51,7 +53,7 @@ abstract contract ManifestFixture is Test {
     address[7] expected;
 
     function setUp() public virtual {
-        vm.chainId(11155111);
+        vm.chainId(1);
         vm.roll(1000);
         vm.warp(START - 1 days);
         owner = makeAddr("manifest owner");
@@ -68,7 +70,7 @@ abstract contract ManifestFixture is Test {
         _prepare(
             5,
             "Letterbox.sol:Letterbox",
-            abi.encode(expected[0], expected[1], expected[2], expected[3], IMD, ORACLE_ASSET, true)
+            abi.encode(expected[0], expected[1], expected[2], expected[3], IMD, ORACLE_ASSET, false)
         );
         _prepare(
             6,
@@ -149,7 +151,7 @@ abstract contract ManifestFixture is Test {
 }
 
 contract AtomicManifestTest is ManifestFixture {
-    function test_factoryDeploysExactManifestOnAnEmptySepoliaChain() public {
+    function test_factoryDeploysExactManifestOnAnEmptyChain() public {
         assertEq(
             INTAKE.code.length + ORACLE_ASSET.code.length + IMD.code.length + POOL_MANAGER.code.length
                 + STACKER.code.length,
@@ -159,9 +161,9 @@ contract AtomicManifestTest is ManifestFixture {
         address[7] memory deployed = factory.deployAll(codes);
         uint256 gasUsed = before - gasleft();
         emit log_named_uint("seven-contract factory deployment gas", gasUsed);
-        // Sepolia accepts this in one transaction (launch #1242's deploy used 81.8M gas there). The
-        // mainnet branch must stay under Ethereum's 16,777,216 per-transaction cap; this one is
-        // the full code and only reports how far it is from that cap.
+        // Mainnet draft: the full run-3 code is over Ethereum's 16,777,216 per-transaction cap.
+        // Whether IMD's mainnet factory deploy is bound by that cap is an open question to IMD; this
+        // test reports the margin and does not assert it.
         emit log_named_int("margin to the 16,777,216 mainnet cap", int256(16_777_216) - int256(gasUsed));
         for (uint256 i; i < 7; ++i) {
             assertEq(deployed[i], expected[i]);
