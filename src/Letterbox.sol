@@ -57,7 +57,8 @@ interface IMintable {
 /// PLEA (at most the hourly snapshot value + 10%) for the oracle fee, a 0.25 IMD runner tip and, for
 /// an appeal, the wall share. The plea's PLEA waits here in escrow. An approved plea is sold by
 /// anyone through `deliver` (for at least 95% of its snapshot value), who earns the tip; the
-/// auto-sell fee, 0.35 IMD of the sale, goes to the season's prize pot and the rest to the writer.
+/// auto-sell fee, 0.35 IMD of the sale (never more than the sale), goes to the season's prize pot and the
+/// rest to the writer.
 /// Selling by hand on the site inside the 7-minute window costs nothing extra. Every other ending
 /// returns the escrow and the tip to the writer through `settle`; the fee is only ever taken from a
 /// sale. The site's "sell automatically" box uses `plead` / `appealAuto`, with the same escrow,
@@ -290,7 +291,9 @@ contract Letterbox is ReentrancyGuardTransient {
         if (amount > bal * MAX_SHARE_BPS / BPS) amount = bal * MAX_SHARE_BPS / BPS;
         _requireWorthTheFee(amount);
         (uint256 feeImd, uint256 maxFeePlea) = feesFor(true);
-        if (maxFeePlea * BPS > bal * MAX_FEE_SHARE_BPS) revert FeeTooHigh(maxFeePlea, bal);
+        // The fees may take 10% of the balance, or up to the appeal's own amount when that is more:
+        // whoever could plead by letter (a plea worth at least 0.70 IMD) can always appeal by letter.
+        if (maxFeePlea * BPS > bal * MAX_FEE_SHARE_BPS && maxFeePlea > amount) revert FeeTooHigh(maxFeePlea, bal);
         plea.courtTake(writer, amount + maxFeePlea);
         _approveGate(maxFeePlea, true);
         uint256 feePlea;
@@ -334,14 +337,20 @@ contract Letterbox is ReentrancyGuardTransient {
         IERC20(address(plea)).forceApprove(address(gate), amount);
         _close(id, e);
         // The gate pays the sale's IMD here; the fee goes to the season pot, the rest to the writer.
-        out = gate.executeSellFor(id, minOut) - AUTO_SELL_FEE;
-        imd.safeTransfer(writer, out);
-        imd.safeTransfer(address(seasons), AUTO_SELL_FEE);
-        seasons.checkpoint();
+        // The fee never exceeds the sale: the 0.70 IMD floor was checked at the plea's hourly
+        // snapshot, and a fall of more than half by the delivery's snapshot would otherwise underflow.
+        uint256 sold = gate.executeSellFor(id, minOut);
+        uint256 fee = sold < AUTO_SELL_FEE ? sold : AUTO_SELL_FEE;
+        out = sold - fee;
+        if (out != 0) imd.safeTransfer(writer, out);
+        if (fee != 0) {
+            imd.safeTransfer(address(seasons), fee);
+            seasons.checkpoint();
+        }
         _soldFor[id] = out;
         _record(id);
         imd.safeTransfer(runner, TIP);
-        emit Delivered(id, runner, out, TIP, AUTO_SELL_FEE);
+        emit Delivered(id, runner, out, TIP, fee);
     }
 
     /// @dev A plea must be worth at least twice the auto-sell fee at the snapshot (the sale pays at

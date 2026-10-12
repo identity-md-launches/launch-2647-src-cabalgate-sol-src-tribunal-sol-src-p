@@ -172,7 +172,7 @@ contract GateAdversarialTest is SepoliaFixture {
     function test_amountLimitsFailBeforeChargingAndOnePercentIsTheMinimum() public {
         uint256 before = oimd.balanceOf(alice);
         uint256 bal = plea.balanceOf(alice);
-        uint256[3] memory tooLarge = [2_500_000e18 + 1, bal * 35 / 100 + 1, type(uint256).max];
+        uint256[3] memory tooLarge = [2_500_000e18 + 1, bal / 2 + 1, type(uint256).max];
         for (uint256 i; i < tooLarge.length; ++i) {
             vm.prank(alice);
             vm.expectRevert(CabalGate.AmountTooLarge.selector);

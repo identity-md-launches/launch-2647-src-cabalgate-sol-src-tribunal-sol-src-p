@@ -3,6 +3,7 @@ pragma solidity 0.8.26;
 
 import {ERC20} from "@openzeppelin/contracts/token/ERC20/ERC20.sol";
 import {Ownable} from "@openzeppelin/contracts/access/Ownable.sol";
+import {Ownable2Step} from "@openzeppelin/contracts/access/Ownable2Step.sol";
 import {IGate} from "./interfaces/IPleaParts.sol";
 
 /// @title PLEA — the sell-gated meme token
@@ -10,7 +11,7 @@ import {IGate} from "./interfaces/IPleaParts.sol";
 /// 10% distributor). While the
 /// gate says the Cabal is watching (`restricted()`), transfers are limited: see `_update`. When
 /// the Cabal dies the restriction ends for good.
-contract PLEA is ERC20, Ownable {
+contract PLEA is ERC20, Ownable2Step {
     error CabalIsWatching();
     error NotDeployTx();
     error AlreadySet();
@@ -112,7 +113,9 @@ contract PLEA is ERC20, Ownable {
         emit Allowed(account);
     }
 
-    /// @notice Burns the caller's own tokens (the hook burns trims and the burn fee this way).
+    /// @notice Burns the caller's own tokens: the court's contracts (the hook burns trims and the
+    /// burn fee this way). While the Cabal watches an ordinary holder's burn is refused like any other
+    /// transfer; once it is dead anyone may burn.
     function burn(uint256 amount) external {
         _burn(msg.sender, amount);
     }
