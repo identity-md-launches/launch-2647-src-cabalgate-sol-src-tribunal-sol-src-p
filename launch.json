@@ -28,28 +28,10 @@
       ]
     },
     {
-      "contract": "Laureates",
-      "constructorArgs": [
-        "$contract:PLEA"
-      ]
-    },
-    {
       "contract": "PleaDistributor",
       "constructorArgs": [
         "$contract:PLEA",
         "$owner"
-      ]
-    },
-    {
-      "contract": "Letterbox",
-      "constructorArgs": [
-        "$contract:PLEA",
-        "$contract:CabalGate",
-        "$contract:Seasons",
-        "$contract:Laureates",
-        "0xd34a99bc0f67ae1bbd63c660e6d0b0dd03e263b7",
-        "0xd34a99bc0f67ae1bbd63c660e6d0b0dd03e263b7",
-        "false"
       ]
     },
     {
@@ -58,16 +40,17 @@
         "$contract:PLEA",
         "$contract:CabalGate",
         "$contract:Seasons",
-        "$contract:Laureates",
         "$contract:PleaDistributor",
-        "$contract:Letterbox",
         "0x000000000004444c5dc75cB358380D2e3dE08A90",
         "0xd34a99bc0f67ae1bbd63c660e6d0b0dd03e263b7",
         "TODO_MAINNET_STACKER",
         "400000",
-        "TODO_START"
+        "TODO_START",
+        "0xd34a99bc0f67ae1bbd63c660e6d0b0dd03e263b7",
+        "false",
+        "0xcdee42a55546db86c399363e90691f0bfed854c4a05a216fc3390df1824c9c04"
       ]
     }
   ],
-  "notes": "DRAFT for Ethereum mainnet (chain 1); not submitted. TODO before import: TODO_MAINNET_STACKER = the imd/acc Stacker on mainnet; TODO_START = the unix time anyone may seed (the owner may seed earlier); $owner to be chosen. The code is Sepolia test run 3's (the accepted launch #1311 code plus letters and auto-sell, a 1% minimum plea, the owner excluded from seasons and keeper tips, a six-season PLEA bonus and the Cabal's judging rules v2). Deploy all seven contracts (PLEA, CabalGate, Seasons, Laureates, PleaDistributor, Letterbox, PleaLaunch) in this order, with zero ETH, in one factory transaction; PleaLaunch's constructor registers the system contracts and then the Letterbox. IMD 0xd34a99bc0f67ae1bbd63c660e6d0b0dd03e263b7 is both the oracle fee asset (0.5 IMD per plea, oracle.request@oracle-1) and the pool currency, so the Letterbox buys the oracle fee with the writer's PLEA together with the 0.25 IMD tip (mintOracleFee = false; the constructor refuses minting on chain 1). Intake v2 0xa43e6f75ee006411f79ac1c84120606c2330de82: pleas are asked with requestWithFailure; onPleaFailure clears only our own still-pending plea and never moves value; expire() after 20 minutes stays as the fallback. Oracle signer 0x5598...2982. 15-day seasons (1296000 s), 33-hour dead-man (118800 s); the CabalGate constructor refuses less on chain 1. Uniswap v4 PoolManager 0x000000000004444c5dc75cB358380D2e3dE08A90, credit gas 400000. PLEA.init mints 87% to the hook, 3% to Seasons and 10% to PleaDistributor; each of the first six seasons pays 5,000,000 PLEA to its qualifying top 10 and burns the unpaid rest. Fees, plea timings, panel 30 and quorum 17 are unchanged. Gas: the manifest rehearsal reports about 24.3M gas, over Ethereum's 16,777,216 per-transaction cap; whether IMD's mainnet deploy is bound by that cap is an open question. PleaHook is not a manifest entry: PleaLaunch commits to its init-code hash and deployHook(salt, initCode) deploys it with a salt mined for the hook flags; seed() opens trading."
+  "notes": "DRAFT for Ethereum mainnet (chain 1); not submitted. TODO before import: TODO_MAINNET_STACKER = the imd/acc Stacker on mainnet; TODO_START = the unix time anyone may seed (the owner may seed earlier); $owner to be chosen (a fresh wallet; the owner cannot play seasons). The code is Sepolia test run 3's. The factory deploys PLEA, CabalGate, Seasons, PleaDistributor and PleaLaunch in this order, with zero ETH, in one transaction: 11.6M gas measured as the chain charges it, 14.1M with a 22% gas-limit headroom, under Ethereum's 16,777,216 per-transaction cap (test/LaunchManifest.t.sol asserts it). Constructor arguments: PLEA(owner = $owner). CabalGate(PLEA, Intake v2 0xa43e6f75ee006411f79ac1c84120606c2330de82, oracle fee asset = IMD 0xd34a99bc0f67ae1bbd63c660e6d0b0dd03e263b7, pool IMD (same), oracle signer 0x5598Aa9146215Bc13eb26f2c692Ad1461Fd32982, season 1296000 s = 15 days, dead-man 118800 s). Seasons(PLEA, CabalGate, IMD). PleaDistributor(PLEA, owner = $owner). PleaLaunch(PLEA, CabalGate, Seasons, PleaDistributor, Uniswap v4 PoolManager 0x000000000004444c5dc75cB358380D2e3dE08A90, IMD, the imd/acc mainnet Stacker, credit gas 400000, START, the Letterbox's oracle fee asset = IMD, mintOracleFee = false (the Letterbox buys the 0.5 IMD oracle fee with the writer's PLEA together with the tip), and the keccak256 of the Letterbox's creation code). After the launch, anyone calls PleaLaunch.deployLetterbox(creationCode) once (about 4.8M gas, its own transaction), then PleaLaunch.deployHook(salt, initCode) with a salt mined off chain; PLEA.init mints 87% to the hook, 3% to Seasons and 10% to PleaDistributor; seed() opens trading (owner any time, anyone from START)."
 }
