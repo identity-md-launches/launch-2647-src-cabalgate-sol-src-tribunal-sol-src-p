@@ -198,29 +198,22 @@ Then:
 
 3. **Open trading.** `PleaLaunch.seed()` creates the pool at a 5,700 IMD market cap and starts the Cabal. The owner may call it any time, and anyone may call it once `START` has passed.
 
-**Sepolia settings** (`launch.json` on this branch; `testnet4` is run 4's source (launch #1466), `testnet3` run 3's (launch #1426), `testnet` run 2's, the `mainnet` branch has the Ethereum settings):
+**Ethereum mainnet draft** (`launch.json` on this branch, `mainnet`; `testnet5` is the same code with the Sepolia settings, `testnet4` is run 4's source (launch #1466), `testnet3` run 3's (launch #1426), `testnet` run 2's):
 
 | Setting | Value |
 |---|---|
 | Intake v2 | `0xa43e6f75ee006411f79ac1c84120606c2330de82` |
-| Oracle fee asset | test IMD `0x44a1cd38474fb1748400e7deb5f8d786cce3f89a` (open `mint`) |
-| Pool IMD | TestIMD `0x2b69099e59b05901faa1dd164fabf098bf831e82` |
-| Stacker | `0x0457276d7b036818b3eddc1a4a3fceda61e9314d` (imd/acc launch #1294) |
-| Season | 5 hours (fast clock for testing) |
-| Dead-man | 33 hours (real) |
-| Plea timings | real (20 min, 7 min, 4 h) |
-| `START` | 1792162800 (Fri 2026-10-16 15:00 UTC; the owner may seed earlier) |
-| Cashback credit gas | 1,300,000 (Sepolia's gas schedule) |
-| Letterbox | mints the 0.5 test oracle fee itself (`mintOracleFee = true`; refused on chain id 1, where the fee is bought with PLEA like the tip) |
-
-The manifest rehearsal measures the launch as the chain charges it (the init codes as transaction data, then their execution) plus the overhead of IMD's real factory, measured by sending these five codes through the mainnet ProjectFactory on a fork (994,547 gas; the test adds 1.1M): about **12.7M gas**, and about **15.5M** with the 22% headroom IMD's deployer adds to a gas limit, under the 16,777,216 cap; the test asserts it. `deployLetterbox` is its own transaction of about **4.8M** gas, `deployHook` about **5.4M** on Ethereum's schedule. `test/fork/ForkTestnet.t.sol` rehearses the whole run on a Sepolia fork against the live Intake v2:
-
-```
-SEPOLIA_RPC_URL=https://ethereum-sepolia-rpc.publicnode.com forge test --match-path test/fork/ForkTestnet.t.sol -vv
-MAINNET_RPC_URL=https://ethereum-rpc.publicnode.com forge test --match-path test/fork/ForkMainnet.t.sol -vv
-```
-
-`test/fork/ForkMainnet.t.sol` does the same on an Ethereum fork with chain-1 settings, against the real IMD, sIMD, PoolManager and Intake v2 (its price for a question is the gate's 0.5 IMD, and its 200k callback gas carries the verdict with room to spare): a letter buys the oracle fee and the tip with PLEA, a runner delivers it, a typed `letter(text)` is denied, appealed and refunded, and a site plea pays the fee in IMD. imd/acc's mainnet Stacker (launch #1409) is credited for real. `test/LetterboxInvariant.t.sol` runs random letters, appeals, verdicts, failures, deliveries, sales, settles and strangers' attempts in both the Sepolia and the mainnet fee modes, and checks that the Letterbox holds exactly its open escrows and tips, that every escrow ends once (sold only after an approval, otherwise refunded to its writer), and that no writer's PLEA moves except through their own letters.
+| Oracle fee asset and pool IMD | IMD `0xd34a99bc0f67ae1bbd63c660e6d0b0dd03e263b7` |
+| Oracle signer | `0x5598aa9146215bc13eb26f2c692ad1461fd32982` |
+| PoolManager | `0x000000000004444c5dc75cB358380D2e3dE08A90` |
+| Stacker | `0x06909f672301f28a810f78cfe7a754851269f4f0` (imd/acc launch #1409, live since 2026-10-12) |
+| Season | 15 days |
+| Dead-man | 33 hours |
+| Plea timings | 20 min, 7 min, 4 h |
+| `START` | **TODO** (the owner may seed earlier) |
+| Cashback credit gas | 400,000 (a first credit measured 197k–249k on a mainnet fork) |
+| Letterbox | buys the 0.5 IMD oracle fee with the writer's PLEA, with the tip (`mintOracleFee = false`) |
+| Owner | **TODO** (a fresh wallet; the owner cannot play seasons) |
 
 The season length and the dead-man are constructor values so a testnet can run a fast clock. On Ethereum mainnet the gate refuses anything below 15 days and 33 hours.
 
