@@ -130,27 +130,21 @@ contract JudgeFindingsTest is Fixture {
         fund(whale);
         buy(whale, 500e18);
         skip(1 days);
+        // The judge's recipe: a balance that is not a multiple of 100 (transfers are gated, so set it).
         uint256 b = plea.balanceOf(whale);
-        // A balance that is not a multiple of 100 (the judge's recipe); a natural one usually is not.
-        if (b % 100 == 0) {
-            vm.prank(whale);
-            plea.transfer(bob, 1);
-            b = plea.balanceOf(whale);
-        }
+        b = b - (b % 100) - 1;
+        deal(address(plea), whale, b);
         vm.prank(whale);
         uint256 id = letterbox.plead(b / 100, "Exactly one percent, the smallest plea the gate allows; the rest stays.");
         require(answer(id, 0), "verdict");
         letterbox.settle(id);
+        // Shrunk by the fee sale; make it a multiple of 100 so a floored clamp would be one wei short.
         uint256 bal = plea.balanceOf(whale);
-        // Shrink to a multiple of 100 so the floor would have been one wei short.
-        if (bal % 100 != 0) {
-            vm.prank(whale);
-            plea.transfer(bob, bal % 100);
-        }
+        deal(address(plea), whale, bal - (bal % 100));
         vm.prank(whale);
         uint256 ap = letterbox.appealAuto(id, "Still one percent; the rest still stays.");
         assertTrue(gate.getPlea(ap).isAppeal);
-        assertGe(gate.getPlea(ap).amount, plea.balanceOf(whale) / 100 - 0, "at least the gate's minimum");
+        assertGe(gate.getPlea(ap).amount, gate.pleaBalance(ap) / 100, "at least the gate's minimum");
     }
 
     /// Finding 2: a writer worth a few IMD can plead by letter and then appeal by letter.

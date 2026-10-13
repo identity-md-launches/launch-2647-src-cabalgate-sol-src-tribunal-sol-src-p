@@ -9,9 +9,13 @@ import {OracleAttestation} from "src/OracleAttestation.sol";
 import {IPoolManager} from "v4-core/interfaces/IPoolManager.sol";
 import {Currency} from "v4-core/types/Currency.sol";
 import {SepoliaFixture} from "./utils/SepoliaFixture.sol";
+import {TickMath} from "v4-core/libraries/TickMath.sol";
 import {MockIMD, MockSIMD, MockIntake, BuyRouter} from "./utils/Mocks.sol";
 
 contract TradingHandler is Test {
+    /// @dev v4-core `Pool.PriceLimitAlreadyExceeded(uint160,uint160)`.
+    bytes4 internal constant PRICE_LIMIT_ALREADY_EXCEEDED = 0x7c9c6e8f;
+
     PLEA public token;
     CabalGate public gate;
     PleaHook public hook;
@@ -204,10 +208,23 @@ contract TradingHandler is Test {
         uint256 amount = sellAll ? balance : bound(raw, 1e12, balance);
         uint256 cashbackBefore = hook.totalCashback();
         uint256 claimsBefore = quoteClaims(actor);
+        uint160 priceBefore = hook.currentSqrtPriceX96();
+        uint256 imdBefore = imd.balanceOf(actor);
         vm.prank(actor);
-        router.sellExactIn(amount, abi.encode(actor));
-        ++sellCalls;
-        afterTrade(actor, cashbackBefore, claimsBefore);
+        try router.sellExactIn(amount, abi.encode(actor)) {
+            ++sellCalls;
+            afterTrade(actor, cashbackBefore, claimsBefore);
+        } catch (bytes memory err) {
+            // Once the Cabal is dead, free sells can drain the pool to the last tick. A plain v4 router's
+            // sell then stops at its own price limit before any swap step, with the pool untouched.
+            uint160 floor = hook.pleaIsZero() ? TickMath.MIN_SQRT_PRICE + 1 : TickMath.MAX_SQRT_PRICE - 1;
+            assertEq(bytes4(err), PRICE_LIMIT_ALREADY_EXCEEDED, "only the pool's own price-limit revert");
+            assertEq(priceBefore, floor, "the pool must already sit at the tick extreme");
+            assertEq(hook.currentSqrtPriceX96(), priceBefore);
+            assertEq(token.balanceOf(actor), balance, "a refused sell moves no PLEA");
+            assertEq(imd.balanceOf(actor), imdBefore, "a refused sell moves no IMD");
+            assertEq(hook.totalCashback(), cashbackBefore);
+        }
     }
 
     function quoteClaims(address who) public view returns (uint256) {
