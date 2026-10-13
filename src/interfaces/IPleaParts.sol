@@ -59,6 +59,7 @@ interface IGate {
 }
 
 interface IPleaHook {
+    function owner() external view returns (address);
     function poolManager() external view returns (address);
     function poolKey() external view returns (PoolKey memory);
     function pleaIsZero() external view returns (bool);

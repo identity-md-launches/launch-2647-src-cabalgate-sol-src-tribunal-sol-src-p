@@ -285,20 +285,35 @@ contract Letterbox is ReentrancyGuardTransient {
     {
         if (originalId == 0) revert NothingToAppeal();
         _settleOpen(writer);
-        uint256 amount = gate.getPlea(originalId).amount;
+        uint256 originalAmount = gate.getPlea(originalId).amount;
+        uint256 amount = originalAmount;
         uint256 bal = plea.balanceOf(writer);
         // The original amount, or the gate's 50% of the balance when the fee sales left less.
         if (amount > bal * MAX_SHARE_BPS / BPS) amount = bal * MAX_SHARE_BPS / BPS;
-        // Never a larger share of the balance than the original plea had: the fee sale of a 20% letter
+        // Keep the original plea's share, subject to the gate's minimum: the fee sale of a 20% letter
         // shrinks the balance, and the same amount would otherwise fall into the next share band
         // (18 -> 11 points, need 33 -> 40). The gate allows a smaller appeal amount.
         uint256 origBal = gate.pleaBalance(originalId);
         if (origBal != 0) {
-            // Rounded up: a plea at exactly the gate's 1% minimum must not land one wei under it.
-            uint256 sameShare = FullMath.mulDivRoundingUp(bal, gate.getPlea(originalId).amount, origBal);
+            uint256 sameShare = FullMath.mulDiv(bal, originalAmount, origBal);
             if (amount > sameShare) amount = sameShare;
+            // Match the gate's 1% minimum on the lesser balance, capped at MAX_SELL. The share
+            // floor can lose one wei at 1%, or fall below MAX_SELL for a capped minimum plea.
+            uint256 least = (bal < origBal ? bal : origBal) / 100;
+            if (least > MAX_SELL) least = MAX_SELL;
+            if (amount < least) amount = least;
         }
-        _requireWorthTheFee(amount);
+        // The original cleared the 0.70 IMD floor, and the same-share clamp always lands a little
+        // under it (the fee sale's share), so an appeal is raised back to the floor's worth instead
+        // of being refused; never above the original or the gate's 50%. When the price fell so far
+        // that even that is out of reach, the appeal still goes through: the delivery fee is capped
+        // at the sale, so it never eats one.
+        uint256 floorAmount = FullMath.mulDivRoundingUp(MIN_SALE_VALUE, FixedPoint96.Q96, _price());
+        if (amount < floorAmount) {
+            amount = floorAmount < originalAmount ? floorAmount : originalAmount;
+            uint256 half = bal * MAX_SHARE_BPS / BPS;
+            if (amount > half) amount = half;
+        }
         (uint256 feeImd, uint256 maxFeePlea) = feesFor(true);
         // The fees may take 10% of the balance, or up to the appeal's own amount when that is more:
         // whoever could plead by letter (a plea worth at least 0.70 IMD) can always appeal by letter.

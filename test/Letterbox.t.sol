@@ -327,6 +327,30 @@ contract LetterboxTest is Fixture {
         assertGe(out * 2 + 1, AUTO_SELL_FEE * 2 * 95 / 100, "the writer keeps at least about half");
     }
 
+    /// The judge's run-4 finding: a 20% letter worth 0.70-0.75 IMD cleared the floor, but its appeal,
+    /// clamped to the same share of a balance shrunk by the fee sale, landed under 0.70 IMD and was
+    /// refused. The appeal is now raised back to the floor's worth (never above the original).
+    function test_anAppealOfAFloorSizedLetterIsNotRefused() public {
+        address w = makeAddr("floorWriter");
+        fund(w);
+        buy(w, 3.7e18);
+        buy(bob, 1e18); // the hour's checkpoint
+        uint256 price = hook.latestPrice();
+        uint256 value20 = (plea.balanceOf(w) / 5) * price / (1 << 96);
+        assertGe(value20, 0.7e18, "setup: the letter must clear the floor");
+        assertLt(value20, 0.76e18, "setup: the letter must sit in the floor band");
+        uint256 id = letter(w, "A fifth for the electrician; the rest stays until the lights go out.");
+        uint256 original = gate.getPlea(id).amount;
+        answer(id, 0);
+        uint256 a = letter(w, "APPEAL The electrician does not wait; the rest still stays.");
+        uint256 amount = gate.getPlea(a).amount;
+        assertLe(amount, original, "never above the original");
+        assertGe(amount * price / (1 << 96) + 1, 0.7e18, "raised back to the floor's worth");
+        assertTrue(gate.getPlea(a).isAppeal);
+        // appealAuto takes the same path.
+        answer(a, 0);
+    }
+
     function test_theGateRefusesAManualSaleOfAnEscrowedPlea() public {
         uint256 id = letter(alice, "A tenth for my rent this month; the rest stays in my wallet for good.");
         answer(id, 45);
@@ -670,6 +694,32 @@ contract OwnerExclusionTest is Fixture {
         ids[0] = id;
         seasons.closeSeason(ids);
         assertFalse(seasons.recorded(id));
+    }
+
+    /// The judge's run-4 finding: the exclusion used to follow PLEA's owner of the moment, so a two-step
+    /// handover inside the team let the former owner (still paid the hook's 0.5%) collect a prize.
+    function test_theLaunchOwnerStaysExcludedAfterAHandover() public {
+        uint256 id = plead(OWNER, plea.balanceOf(OWNER) / 10);
+        answer(id, 45);
+        address second = makeAddr("second");
+        vm.prank(OWNER);
+        plea.transferOwnership(second);
+        vm.prank(second);
+        plea.acceptOwnership();
+        assertEq(plea.owner(), second);
+        assertEq(hook.owner(), OWNER, "the fee beneficiary never changes");
+        vm.expectRevert(Seasons.OwnerExcluded.selector);
+        seasons.record(id);
+        // closeSeason drops it quietly: no prize, no bonus.
+        vm.warp(uint256(gate.lastVerdictAt()) + gate.DEADMAN() + 1 hours);
+        uint256 ownerPlea = plea.balanceOf(OWNER);
+        uint256 ownerImd = imd.balanceOf(OWNER);
+        uint256[] memory ids = new uint256[](1);
+        ids[0] = id;
+        seasons.closeSeason(ids);
+        assertFalse(seasons.recorded(id));
+        assertEq(plea.balanceOf(OWNER), ownerPlea, "no bonus reached the former owner");
+        assertEq(imd.balanceOf(OWNER), ownerImd, "no prize reached the former owner");
     }
 
     function test_nobodyGetsAKeeperTip() public {

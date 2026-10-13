@@ -730,7 +730,9 @@ contract ForkTestnetTest is Test {
         vm.prank(a);
         letterbox.letter("SELL");
         assertEq(uint8(_status(id)), uint8(CabalGate.Status.Executed));
-        assertGe((IMD.balanceOf(a) - imdBefore - 0.25e18 + 0.35e18) * 10_000, _spotValue(p.amount) * 9_500, "sale + own tip");
+        assertGe(
+            (IMD.balanceOf(a) - imdBefore - 0.25e18 + 0.35e18) * 10_000, _spotValue(p.amount) * 9_500, "sale + own tip"
+        );
         assertTrue(seasons.recorded(id));
         assertEq(IMD.balanceOf(address(letterbox)), 0);
     }

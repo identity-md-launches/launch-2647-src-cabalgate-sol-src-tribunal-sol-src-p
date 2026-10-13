@@ -151,7 +151,7 @@ contract Seasons {
         (address seller, uint8 score, bool approved, uint64 verdictAt) = gate.result(pleaId);
         if (!approved) revert NotApproved(pleaId);
         if (recorded[pleaId]) revert AlreadyRecorded(pleaId);
-        if (seller == plea.owner()) revert OwnerExcluded();
+        if (_excluded(seller)) revert OwnerExcluded();
         uint256 season = _seasonOf(verdictAt);
         if (closed[season]) revert SeasonClosed(season);
         _record(pleaId, season, seller, score);
@@ -297,7 +297,7 @@ contract Seasons {
     function _tryRecord(uint256 pleaId) internal {
         if (recorded[pleaId]) return;
         (address seller, uint8 score, bool approved, uint64 verdictAt) = gate.result(pleaId);
-        if (!approved || seller == plea.owner()) return;
+        if (!approved || _excluded(seller)) return;
         uint256 season = _seasonOf(verdictAt);
         if (closed[season]) return;
         _record(pleaId, season, seller, score);
@@ -306,10 +306,30 @@ contract Seasons {
     /// @dev Points recorded before an ownership transfer: the current owner is not paid. Its rank's
     /// share is not paid to anyone else either (the IMD rolls over, the PLEA bonus share is burned).
     function _dropOwner(Entry[10] memory t) internal view {
-        address owner_ = plea.owner();
+        (address a,, address c) = _owners();
         for (uint256 i; i < TOP; ++i) {
-            if (t[i].wallet == owner_ && owner_ != address(0)) t[i].wallet = address(0);
+            address w = t[i].wallet;
+            if (w != address(0) && (w == a || w == c)) t[i].wallet = address(0);
         }
+    }
+
+    /// @dev The owner of PLEA and the launch owner the hook pays its 0.5% to: neither ever earns
+    /// points, prizes or the bonus, so a handover inside the team cannot bring a prize back to it.
+    /// A wallet merely nominated (two-step transfer) is not excluded: that would let the owner strip
+    /// a leader by nominating them, the run-3 finding Ownable2Step closed.
+    function _owners() internal view returns (address a, address b, address c) {
+        a = plea.owner();
+        address hook_ = plea.hook();
+        if (hook_ != address(0)) {
+            // Read, never trust: a hook without `owner()` must not be able to block a record or a close.
+            (bool ok, bytes memory ret) = hook_.staticcall(abi.encodeWithSignature("owner()"));
+            if (ok && ret.length == 32) c = abi.decode(ret, (address));
+        }
+    }
+
+    function _excluded(address w) internal view returns (bool) {
+        (address a,, address c) = _owners();
+        return w != address(0) && (w == a || w == c);
     }
 
     function _shareBps(uint256 rank) internal pure returns (uint256) {

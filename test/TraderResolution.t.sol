@@ -3,7 +3,11 @@ pragma solidity 0.8.26;
 
 import {Fixture} from "./utils/Fixture.sol";
 import {MsgSenderRouter} from "./utils/Mocks.sol";
+import {PleaHook} from "../src/PleaHook.sol";
 import {IPoolManager} from "v4-core/interfaces/IPoolManager.sol";
+import {IHooks} from "v4-core/interfaces/IHooks.sol";
+import {Hooks} from "v4-core/libraries/Hooks.sol";
+import {CustomRevert} from "v4-core/libraries/CustomRevert.sol";
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 
 /// imd/acc's trader rule in the hook: the cashback and the buy record go to the trader named in
@@ -139,6 +143,67 @@ contract TraderResolutionTest is Fixture {
         uint256 out = msr.swap(true, 5e18, "");
         assertGt(out, 0, "after death the router takes the PLEA for its caller");
         assertGt(simd.balanceOf(bob), shares);
+    }
+
+    function test_dirtyHookDataAfterDeathBuyHasNoTrader() public {
+        _die();
+        uint256 cashback = hook.totalCashback();
+        uint256 shares = simd.totalSupply();
+        uint256 poolFees = hook.totalPoolFees();
+        uint256 ownerFees = hook.totalOwnerFees();
+        uint256 before = plea.balanceOf(alice);
+        vm.prank(alice);
+        uint256 got = router.buyExactIn(5e18, abi.encode(uint256(uint160(alice)) | (1 << 200)));
+        assertGt(got, 0);
+        assertEq(plea.balanceOf(alice) - before, got);
+        assertEq(hook.totalCashback(), cashback);
+        assertEq(simd.totalSupply(), shares);
+        (, uint256 held,) = hook.basisOf(alice);
+        assertEq(held, 0, "dirty address must not be truncated into a trader");
+        assertApproxEqAbs(hook.totalPoolFees() - poolFees, 2 * (hook.totalOwnerFees() - ownerFees), 2);
+    }
+
+    function test_dirtyHookDataFallsBackToRouterCallerWhileAlive() public {
+        _assertDirtyRouterFallback(uint256(uint160(bob)) | (1 << 200));
+    }
+
+    function testFuzz_dirtyHookDataFallsBackToRouterCaller(uint96 upperBits, bool dead) public {
+        if (dead) _die();
+        upperBits = uint96(bound(upperBits, 1, type(uint96).max));
+        _assertDirtyRouterFallback(uint256(uint160(bob)) | (uint256(upperBits) << 160));
+    }
+
+    function _assertDirtyRouterFallback(uint256 word) internal {
+        uint256 before = plea.balanceOf(alice);
+        uint256 shares = simd.balanceOf(alice);
+        // The lower bits name bob, so truncating instead of rejecting the word would misdirect the buy.
+        vm.prank(alice);
+        uint256 out = msr.swap(true, 5e18, abi.encode(word));
+        if (gate.cabalAlive()) assertEq(out, 0);
+        else assertGt(out, 0);
+        uint256 got = plea.balanceOf(alice) - before;
+        assertGt(got, 0);
+        assertGt(simd.balanceOf(alice), shares);
+        assertEq(plea.balanceOf(bob), 0);
+        assertEq(simd.balanceOf(bob), 0);
+        assertEq(plea.balanceOf(address(msr)), 0);
+        assertEq(simd.balanceOf(address(msr)), 0);
+        (, uint256 held,) = hook.basisOf(alice);
+        assertEq(held, got);
+    }
+
+    function test_dirtyHookDataWithoutFallbackWhileAliveRequiresRecipient() public {
+        vm.expectRevert(
+            abi.encodeWithSelector(
+                CustomRevert.WrappedError.selector,
+                address(hook),
+                IHooks.beforeSwap.selector,
+                abi.encodeWithSelector(PleaHook.RecipientRequired.selector),
+                abi.encodeWithSelector(Hooks.HookCallFailed.selector)
+            )
+        );
+        vm.prank(alice);
+        router.buyExactIn(5e18, abi.encode(uint256(uint160(alice)) | (1 << 200)));
     }
 
     function test_feeSurplusWithoutATraderIsBurnedOrKeptForThePool() public {

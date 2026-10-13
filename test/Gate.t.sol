@@ -118,6 +118,7 @@ contract GateTest is Fixture {
         assertTrue(gate.getPlea(id).appealed);
         string memory q = gate.question(a);
         assertTrue(vm.contains(q, "This is an APPEAL of plea #1"));
+        assertTrue(vm.contains(q, "DENIED at 10 against a need of "), "the judges are told the real score and need");
         answer(a, 45);
         vm.prank(alice);
         gate.executeSell(1);
