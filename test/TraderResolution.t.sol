@@ -103,6 +103,22 @@ contract TraderResolutionTest is Fixture {
         assertApproxEqAbs(hook.totalPoolFees() - pool0, 2 * (hook.totalOwnerFees() - owner0), 2);
     }
 
+    /// A 32-byte hookData word with dirty upper bits is not an address: the resolution falls through
+    /// (to the router's caller, or to no trader after death) instead of reverting the swap.
+    function test_dirtyHookDataWordFallsThrough() public {
+        bytes memory dirty = abi.encode(uint256(uint160(alice)) | (1 << 200));
+        uint256 shares = simd.balanceOf(alice);
+        vm.prank(alice);
+        msr.swap(true, 1e18, dirty);
+        assertGt(simd.balanceOf(alice), shares, "while the Cabal lives: the router's caller");
+        _die();
+        uint256 cashback = hook.totalCashback();
+        vm.prank(alice);
+        uint256 got = router.buyExactIn(1e18, dirty);
+        assertGt(got, 0, "after death: the buy goes through");
+        assertEq(hook.totalCashback(), cashback, "with no trader and no cashback");
+    }
+
     function test_noTraderAfterDeathBuyGoesThroughWithoutCashback() public {
         _die();
         uint256 cashback = hook.totalCashback();

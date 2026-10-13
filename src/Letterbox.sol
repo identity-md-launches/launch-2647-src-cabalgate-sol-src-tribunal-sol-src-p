@@ -294,7 +294,8 @@ contract Letterbox is ReentrancyGuardTransient {
         // (18 -> 11 points, need 33 -> 40). The gate allows a smaller appeal amount.
         uint256 origBal = gate.pleaBalance(originalId);
         if (origBal != 0) {
-            uint256 sameShare = FullMath.mulDiv(bal, gate.getPlea(originalId).amount, origBal);
+            // Rounded up: a plea at exactly the gate's 1% minimum must not land one wei under it.
+            uint256 sameShare = FullMath.mulDivRoundingUp(bal, gate.getPlea(originalId).amount, origBal);
             if (amount > sameShare) amount = sameShare;
         }
         _requireWorthTheFee(amount);
