@@ -89,12 +89,12 @@ contract SeasonAdversarialTest is Test {
         seasons.checkpoint();
         ready();
         seasons.closeSeason(ids);
-        assertEq(quote.balanceOf(alice), 25e18);
+        assertEq(quote.balanceOf(alice), 4.5e18);
         assertFalse(seasons.recorded(3));
         assertFalse(seasons.recorded(999));
         vm.expectRevert(abi.encodeWithSelector(Seasons.NotReady.selector, uint256(1)));
         seasons.closeSeason(ids);
-        assertEq(quote.balanceOf(alice), 25e18);
+        assertEq(quote.balanceOf(alice), 4.5e18);
         assertEq(seasons.nextToClose(), 1);
     }
 
@@ -131,17 +131,17 @@ contract SeasonAdversarialTest is Test {
         vm.warp(vm.getBlockTimestamp() + 1 hours);
         seasons.closeSeason(ids);
         assertEq(quote.balanceOf(alice), 0);
-        assertEq(quote.balanceOf(bob), 18e18);
-        assertEq(seasons.pot(), 82e18);
+        assertEq(quote.balanceOf(bob), 4.46e18);
+        assertEq(seasons.pot(), 95.54e18);
         assertTrue(seasons.finished());
         seasons.flushToWall();
-        assertEq(wall.received(), 82e18);
+        assertEq(wall.received(), 95.54e18);
         assertEq(seasons.pot(), 0);
         seasons.flushToWall();
-        assertEq(wall.received(), 82e18, "flush is idempotent with no new funding");
+        assertEq(wall.received(), 95.54e18, "flush is idempotent with no new funding");
         quote.mint(address(seasons), 1);
         seasons.flushToWall();
-        assertEq(wall.received(), 82e18 + 1);
+        assertEq(wall.received(), 95.54e18 + 1);
     }
 
     function testFuzz_prizeRoundingConservesAnOddSizedPot(uint256 rawPot) public {
@@ -159,14 +159,14 @@ contract SeasonAdversarialTest is Test {
         }
         ready();
         seasons.closeSeason(ids);
-        uint256[10] memory percent = [uint256(25), 18, 14, 11, 9, 7, 6, 4, 3, 3];
         uint256 paid;
         for (uint256 i; i < 10; ++i) {
-            assertEq(quote.balanceOf(actors[i]), pot * percent[i] / 100);
+            assertEq(quote.balanceOf(actors[i]), pot * seasons.shareBps(i) / 10_000);
             paid += quote.balanceOf(actors[i]);
         }
         assertEq(paid + seasons.pot(), pot);
-        assertLt(seasons.pot(), 10, "at most nine wei of rounding dust for ten paid shares");
+        // Ranks 11 to 25 (5,687 bps) stay in the pot; the ten paid shares leave under ten wei of dust.
+        assertLt(seasons.pot() - pot * 5_687 / 10_000, 12, "at most a few wei of rounding dust for ten paid shares");
     }
 
     function test_prizesRequireSixtyPoints() public {
@@ -183,8 +183,8 @@ contract SeasonAdversarialTest is Test {
         ready();
         seasons.closeSeason(ids);
         assertEq(quote.balanceOf(alice), 0);
-        assertEq(quote.balanceOf(bob), 25e18);
-        assertEq(seasons.pot(), 75e18);
+        assertEq(quote.balanceOf(bob), 4.5e18);
+        assertEq(seasons.pot(), 95.5e18);
     }
 
     function test_flushBeforeFinalCloseCannotMoveAnyFunds() public {

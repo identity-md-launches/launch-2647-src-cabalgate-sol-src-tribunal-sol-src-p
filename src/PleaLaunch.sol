@@ -14,16 +14,17 @@ interface IPLEAForLaunch {
     function init(address hook, address poolManager) external;
 }
 
-/// @title PleaLaunch — wires PLEA at launch and deploys the hook and the Letterbox afterwards
+/// @title PleaLaunch — wires PLEA at launch and deploys the hook, the Letterbox and the Tribunal afterwards
 /// @dev Last contract of the launch. Its constructor (inside the launch transaction) registers the
-/// system's contracts with PLEA and commits to the hook's and the Letterbox's exact init code, so
-/// the launch transaction stays under Ethereum's 16,777,216-gas cap. After launch, anyone calls
-/// `deployHook` with a salt mined off chain (script/MineSalt.s.sol): the hook lands on an address
-/// carrying its flag bits, and PLEA mints 87% to it, 3% to Seasons and 10% to the distributor. Anyone
-/// calls `deployLetterbox` once with the Letterbox's creation code: it reads its settings from this
-/// contract and PLEA registers it. Both results are fully determined by the committed code, so
-/// front-running either call changes nothing. `seed` opens trading: the owner may call it any
-/// time, anyone once `START` has passed.
+/// system's contracts with PLEA and commits to the hook's, the Letterbox's and the Tribunal's exact
+/// init code, so the launch transaction stays under Ethereum's 16,777,216-gas cap. After launch,
+/// anyone calls `deployHook` with a salt mined off chain (script/MineSalt.s.sol): the hook lands on
+/// an address carrying its flag bits, and PLEA mints 82% to it, 6% to Seasons and 12% to the
+/// distributor. Anyone calls `deployLetterbox` and `deployTribunal` once each with the committed
+/// creation code: both read their settings from this contract. Every result is fully determined by
+/// the committed code, so front-running any of these calls changes nothing. A zero Tribunal hash
+/// launches with objections off for good. `seed` opens trading: the owner may call it any time,
+/// anyone once `START` has passed.
 contract PleaLaunch {
     error WrongInitCode();
     error HookDeployFailed();
@@ -33,9 +34,13 @@ contract PleaLaunch {
     error TooEarly(uint256 start);
     error LetterboxAlreadyDeployed();
     error LetterboxDeployFailed();
+    error TribunalOff();
+    error TribunalAlreadyDeployed();
+    error TribunalDeployFailed();
 
     event HookDeployed(address indexed hook, bytes32 salt);
     event LetterboxDeployed(address indexed letterbox);
+    event TribunalDeployed(address indexed tribunal);
     event TradingOpened(uint256 at);
 
     uint160 public constant FLAG_MASK = (1 << 14) - 1;
@@ -57,9 +62,13 @@ contract PleaLaunch {
     bool public immutable mintOracleFee;
     /// @notice keccak256 of the Letterbox's creation code (it takes no constructor arguments).
     bytes32 public immutable letterboxCodeHash;
+    /// @notice keccak256 of the Tribunal's creation code (no constructor arguments); zero means the
+    /// launch has no objections.
+    bytes32 public immutable tribunalCodeHash;
 
     address public hook;
     address public letterbox;
+    address public tribunal;
     bool public opened;
 
     constructor(
@@ -74,7 +83,8 @@ contract PleaLaunch {
         uint256 start_,
         address oracleAsset_,
         bool mintOracleFee_,
-        bytes32 letterboxCodeHash_
+        bytes32 letterboxCodeHash_,
+        bytes32 tribunalCodeHash_
     ) {
         plea = plea_;
         gate = gate_;
@@ -85,6 +95,7 @@ contract PleaLaunch {
         oracleAsset = oracleAsset_;
         mintOracleFee = mintOracleFee_;
         letterboxCodeHash = letterboxCodeHash_;
+        tribunalCodeHash = tribunalCodeHash_;
         address owner_ = IPLEAForLaunch(plea_).owner();
         owner = owner_;
         hookInitCodeHash = keccak256(
@@ -125,6 +136,29 @@ contract PleaLaunch {
         letterbox = deployed;
         IPLEAForLaunch(plea).setLetterbox(deployed);
         emit LetterboxDeployed(deployed);
+    }
+
+    /// @notice Deploys the Tribunal (Objection!) with CREATE2 (salt 0), once. `creationCode` must be
+    /// the committed one; the Tribunal reads its settings from this contract and Seasons finds it here.
+    function deployTribunal(bytes calldata creationCode) external returns (address deployed) {
+        if (tribunalCodeHash == bytes32(0)) revert TribunalOff();
+        if (tribunal != address(0)) revert TribunalAlreadyDeployed();
+        if (keccak256(creationCode) != tribunalCodeHash) revert WrongInitCode();
+        bytes memory code = creationCode;
+        assembly ("memory-safe") {
+            deployed := create2(0, add(code, 32), mload(code), 0)
+        }
+        if (deployed == address(0)) revert TribunalDeployFailed();
+        tribunal = deployed;
+        emit TribunalDeployed(deployed);
+    }
+
+    /// @notice The address `deployTribunal` deploys to (zero when objections are off).
+    function predictTribunal() external view returns (address) {
+        if (tribunalCodeHash == bytes32(0)) return address(0);
+        return address(
+            uint160(uint256(keccak256(abi.encodePacked(bytes1(0xff), address(this), bytes32(0), tribunalCodeHash))))
+        );
     }
 
     /// @notice The address `deployLetterbox` deploys to.

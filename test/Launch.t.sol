@@ -51,7 +51,8 @@ contract LaunchTest is Test {
             START,
             address(imd),
             false,
-            keccak256(type(Letterbox).creationCode)
+            keccak256(type(Letterbox).creationCode),
+            bytes32(0)
         );
     }
 
@@ -96,8 +97,8 @@ contract LaunchTest is Test {
         address h = launch.deployHook(salt, code);
         assertEq(uint160(h) & 0x3fff, launch.FLAGS());
         assertEq(plea.hook(), h);
-        assertEq(plea.balanceOf(h), 870_000_000e18);
-        assertEq(plea.balanceOf(address(seasons)), 30_000_000e18);
+        assertEq(plea.balanceOf(h), 820_000_000e18);
+        assertEq(plea.balanceOf(address(seasons)), 60_000_000e18);
         vm.expectRevert(PleaLaunch.HookAlreadyDeployed.selector);
         launch.deployHook(salt, code);
     }

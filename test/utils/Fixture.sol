@@ -4,7 +4,8 @@ pragma solidity 0.8.26;
 import {Test} from "forge-std/Test.sol";
 import {PoolManager} from "v4-core/PoolManager.sol";
 import {IPoolManager} from "v4-core/interfaces/IPoolManager.sol";
-import {OracleAttestation} from "../../src/OracleAttestation.sol";
+import {OracleAttestation, OracleAttestationConsumer} from "../../src/OracleAttestation.sol";
+import {Tribunal} from "../../src/Tribunal.sol";
 import {PLEA} from "../../src/PLEA.sol";
 import {CabalGate} from "../../src/CabalGate.sol";
 import {Seasons} from "../../src/Seasons.sol";
@@ -39,6 +40,7 @@ contract Fixture is Test {
     Seasons seasons;
     PleaDistributor distributor;
     Letterbox letterbox;
+    Tribunal tribunal;
     PleaLaunch launch;
     PleaHook hook;
     BuyRouter router;
@@ -50,6 +52,18 @@ contract Fixture is Test {
     address[] users;
 
     function setTimings() internal virtual {}
+
+    /// @dev Objection! is a launch choice: the Tribunal suites opt in; every other suite runs the
+    /// launch with a zero Tribunal hash (objections off), today's behaviour.
+    function withTribunal() internal pure virtual returns (bool) {
+        return false;
+    }
+
+    /// @dev With the Tribunal committed: deploy it right after the launch (default), or leave that to
+    /// the test.
+    function deployTribunalAtLaunch() internal pure virtual returns (bool) {
+        return true;
+    }
 
     /// @dev Sepolia: a separate oracle fee token (the Letterbox mints the fee). Mainnet path: return
     /// the pool IMD, so the Letterbox buys the oracle fee with PLEA like the tip.
@@ -128,10 +142,14 @@ contract Fixture is Test {
             T0 + 1 days,
             address(feeToken),
             feeToken != imd,
-            keccak256(type(Letterbox).creationCode)
+            keccak256(type(Letterbox).creationCode),
+            withTribunal() ? keccak256(type(Tribunal).creationCode) : bytes32(0)
         );
-        // After the launch: anyone deploys the committed Letterbox.
+        // After the launch: anyone deploys the committed Letterbox (and the Tribunal, when on).
         letterbox = Letterbox(launch.deployLetterbox(type(Letterbox).creationCode));
+        if (withTribunal() && deployTribunalAtLaunch()) {
+            tribunal = Tribunal(launch.deployTribunal(type(Tribunal).creationCode));
+        }
     }
 
     function hookInitCode() internal view returns (bytes memory) {
@@ -210,8 +228,51 @@ contract Fixture is Test {
     }
 
     function sign(OracleAttestation.Attestation memory a) internal view returns (bytes memory) {
-        (uint8 v, bytes32 r, bytes32 s) = vm.sign(SIGNER_KEY, gate.attestationDigest(a));
+        return signFor(address(gate), a);
+    }
+
+    /// @dev Signed under `consumer`'s own EIP-712 domain (the gate's or the Tribunal's).
+    function signFor(address consumer, OracleAttestation.Attestation memory a) internal view returns (bytes memory) {
+        (uint8 v, bytes32 r, bytes32 s) = vm.sign(SIGNER_KEY, OracleAttestationConsumer(consumer).attestationDigest(a));
         return abi.encodePacked(r, s, v);
+    }
+
+    // ---------------------------------------------------------------- objections
+
+    /// @dev `who` objects to `pleaId` (stake and, on the mainnet path, the fee come from `who`).
+    function objectTo(address who, uint256 pleaId, string memory text) internal returns (uint256 id) {
+        vm.startPrank(who);
+        imd.approve(address(tribunal), type(uint256).max);
+        oracleFeeToken().approve(address(tribunal), type(uint256).max);
+        id = tribunal.object(pleaId, text);
+        vm.stopPrank();
+    }
+
+    function objectTo(address who, uint256 pleaId) internal returns (uint256 id) {
+        return objectTo(who, pleaId, "That plea is boilerplate: the same three lines as every other sell this week.");
+    }
+
+    /// @dev `who` tries to object and must fail with `err` (approvals are set first, so the revert
+    /// expectation lands on `object` itself).
+    function objectFails(address who, uint256 pleaId, bytes memory err) internal {
+        vm.startPrank(who);
+        imd.approve(address(tribunal), type(uint256).max);
+        oracleFeeToken().approve(address(tribunal), type(uint256).max);
+        vm.stopPrank();
+        vm.expectRevert(err);
+        vm.prank(who);
+        tribunal.object(pleaId, "That plea is boilerplate: the same three lines as every other sell this week.");
+    }
+
+    function objectFails(address who, uint256 pleaId, bytes4 err) internal {
+        objectFails(who, pleaId, abi.encodePacked(err));
+    }
+
+    /// @dev The Intake's writer completes an objection's request with a signed re-score.
+    function rule(uint256 objectionId, uint256 score) internal returns (bool) {
+        bytes32 intakeId = tribunal.objection(objectionId).intakeId;
+        OracleAttestation.Attestation memory a = attestation(score, keccak256(abi.encode("objection", objectionId)));
+        return intake.complete(intakeId, 0, abi.encode(intakeId, a, signFor(address(tribunal), a)));
     }
 
     /// @dev The Intake's writer completes the request with a signed score (status 0).

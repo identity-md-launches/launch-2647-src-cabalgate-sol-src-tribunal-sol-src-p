@@ -539,7 +539,7 @@ contract LetterboxTest is Fixture {
         letterbox.deliver(id);
         string memory b = letterbox.leaderboard();
         assertTrue(vm.contains(b, "Season 1"), b);
-        assertTrue(vm.contains(b, "+ 5,000,000 PLEA"), b);
+        assertTrue(vm.contains(b, "+ 10,000,000 PLEA"), b);
         assertTrue(vm.contains(b, "1. 0x"), b);
         assertTrue(vm.contains(b, "40 pts (needs 60)"), b);
         vm.prank(alice);
@@ -668,7 +668,8 @@ contract LetterboxTest is Fixture {
             T0 + 2 days,
             address(oimd),
             true,
-            keccak256(type(Letterbox).creationCode)
+            keccak256(type(Letterbox).creationCode),
+            bytes32(0)
         );
     }
 }

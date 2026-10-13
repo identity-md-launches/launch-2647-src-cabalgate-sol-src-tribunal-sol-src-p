@@ -57,8 +57,8 @@ contract BonusWall {
 }
 
 abstract contract BonusFixture is Test {
-    uint256 constant BONUS = 5_000_000e18;
-    uint256 constant BONUS_TOTAL = 30_000_000e18;
+    uint256 constant BONUS = 10_000_000e18;
+    uint256 constant BONUS_TOTAL = 60_000_000e18;
     uint64 constant T0 = 1_792_162_800;
 
     BonusGate gate;
@@ -82,9 +82,8 @@ abstract contract BonusFixture is Test {
         plea.init(address(wall), pm);
     }
 
-    function share(uint256 rank) internal pure returns (uint256) {
-        uint16[10] memory bps = [2500, 1800, 1400, 1100, 900, 700, 600, 400, 300, 300];
-        return BONUS * bps[rank] / 10_000;
+    function share(uint256 rank) internal view returns (uint256) {
+        return BONUS * seasons.shareBps(rank) / 10_000;
     }
 
     function close() internal {
@@ -99,7 +98,7 @@ abstract contract BonusFixture is Test {
 /// @notice Drives Seasons through random approvals, closes, deaths, donations and flushes, and
 /// checks every close against what the ranking says it must pay.
 contract BonusHandler is Test {
-    uint256 constant BONUS = 5_000_000e18;
+    uint256 constant BONUS = 10_000_000e18;
 
     BonusGate public gate;
     Seasons public seasons;
@@ -168,10 +167,10 @@ contract BonusHandler is Test {
             seasons.closeSeason(new uint256[](0));
             return;
         }
-        Seasons.Entry[10] memory t = seasons.topOf(season);
+        Seasons.Entry[25] memory t = seasons.topOf(season);
         bool restricted = plea.restricted();
-        uint256[10] memory before;
-        for (uint256 i; i < 10; ++i) {
+        uint256[25] memory before;
+        for (uint256 i; i < 25; ++i) {
             if (t[i].wallet != address(0)) before[i] = plea.balanceOf(t[i].wallet);
         }
         uint256 held = plea.balanceOf(address(seasons));
@@ -180,7 +179,7 @@ contract BonusHandler is Test {
         seasons.closeSeason(new uint256[](0));
 
         uint256 paid;
-        for (uint256 i; i < 10; ++i) {
+        for (uint256 i; i < 25; ++i) {
             address w = t[i].wallet;
             if (w == address(0)) continue;
             uint256 expected;
@@ -233,9 +232,8 @@ contract BonusHandler is Test {
         plea.transferFrom(address(seasons), who, amount);
     }
 
-    function _bps(uint256 rank) internal pure returns (uint256) {
-        uint16[10] memory bps = [2500, 1800, 1400, 1100, 900, 700, 600, 400, 300, 300];
-        return bps[rank];
+    function _bps(uint256 rank) internal view returns (uint256) {
+        return seasons.shareBps(rank);
     }
 
     function sumActorBalances() external view returns (uint256 s) {
@@ -352,7 +350,7 @@ contract BonusEdgeTest is BonusFixture {
         seasons.record(id++);
     }
 
-    function test_tenQualifiersReceiveTheWholeBonusAndNothingBurns() public {
+    function test_tenQualifiersReceiveTheirTenSharesAndTheRestBurns() public {
         for (uint256 i; i < 10; ++i) {
             give(wallets[i], 45);
             give(wallets[i], uint8(44 - i)); // 89..80 points, distinct ranks
@@ -364,8 +362,12 @@ contract BonusEdgeTest is BonusFixture {
             assertEq(plea.balanceOf(wallets[i]), share(i), "rank share");
             total += share(i);
         }
-        assertEq(total, BONUS, "shares sum to the bonus");
-        assertEq(seasons.bonusBurned(), 0);
+        uint256 all;
+        for (uint256 i; i < 25; ++i) {
+            all += share(i);
+        }
+        assertEq(all, BONUS, "the twenty-five shares sum to the bonus");
+        assertEq(seasons.bonusBurned(), BONUS - total, "ranks 11 to 25 stay unpaid and burn");
         assertEq(plea.balanceOf(address(seasons)), 5 * BONUS);
     }
 
@@ -393,7 +395,7 @@ contract BonusEdgeTest is BonusFixture {
         assertEq(seasons.bonusBurned(), BONUS);
     }
 
-    function test_eleventhWalletIsNotPaidAndCannotDisplaceRankTen() public {
+    function test_eleventhWalletRanksAfterTheTenAndIsPaidEleventh() public {
         for (uint256 i; i < 10; ++i) {
             give(wallets[i], 45);
             give(wallets[i], 30);
@@ -403,9 +405,13 @@ contract BonusEdgeTest is BonusFixture {
         give(late, 30); // equal points, later plea: ranks after the ten
         atSeasonClose(0);
         close();
-        assertEq(plea.balanceOf(late), 0);
+        assertEq(plea.balanceOf(late), share(10), "rank 11 of 25 is paid");
         assertEq(plea.balanceOf(wallets[9]), share(9));
-        assertEq(seasons.bonusBurned(), 0);
+        uint256 paid;
+        for (uint256 i; i < 11; ++i) {
+            paid += share(i);
+        }
+        assertEq(seasons.bonusBurned(), BONUS - paid);
     }
 
     function test_closingTwiceCannotPayASeasonsBonusTwice() public {
@@ -473,9 +479,10 @@ contract BonusEdgeTest is BonusFixture {
         gate.die();
         skip(1 hours);
         close();
+        uint256 first = share(0);
         vm.prank(wallets[0]);
-        plea.transfer(pm, share(0)); // no Cabal, no restriction, even to the PoolManager
-        assertEq(plea.balanceOf(pm), share(0));
+        plea.transfer(pm, first); // no Cabal, no restriction, even to the PoolManager
+        assertEq(plea.balanceOf(pm), first);
     }
 
     function test_gateAsSellerForfeitsWhileWatchedButIsPaidAfterDeath() public {
@@ -516,8 +523,8 @@ contract BonusEdgeTest is BonusFixture {
         assertEq(supply - plea.totalSupply(), seasons.bonusBurned());
         assertEq(plea.balanceOf(address(seasons)), 5 * BONUS);
         // Every payee qualified and is ranked.
-        Seasons.Entry[10] memory t = seasons.topOf(0);
-        for (uint256 i; i < 10; ++i) {
+        Seasons.Entry[25] memory t = seasons.topOf(0);
+        for (uint256 i; i < 25; ++i) {
             if (t[i].wallet == address(0)) continue;
             uint256 expected = t[i].points >= 60 ? share(i) : 0;
             assertEq(plea.balanceOf(t[i].wallet), expected);

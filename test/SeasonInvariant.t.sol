@@ -137,11 +137,10 @@ contract SeasonHandler is Test {
         uint256 pot = seasons.pot();
         _observeFunding(); // close also observes donations, in the running/final season
         uint256 budget = funding[season] + expectedRollover;
-        uint256[10] memory percentages = [uint256(25), 18, 14, 11, 9, 7, 6, 4, 3, 3];
         seasons.closeSeason(new uint256[](0));
         uint256 expectedPaid;
         for (uint256 i; i < 12; ++i) {
-            uint256 payout = i < 10 && ranking[i].points >= 60 ? budget * percentages[i] / 100 : 0;
+            uint256 payout = ranking[i].points >= 60 ? budget * seasons.shareBps(i) / 10_000 : 0;
             assertEq(
                 imd.balanceOf(actors[ranking[i].actor]),
                 before[ranking[i].actor] + payout,
@@ -214,8 +213,8 @@ contract SeasonHandler is Test {
             }
             (SeasonModel.Approval[] memory list, uint256 n) = SeasonModel.sorted(approvals, season);
             SeasonModel.Wallet[12] memory ranking = SeasonModel.wallets(list, n);
-            Seasons.Entry[10] memory actual = seasons.topOf(season);
-            for (uint256 i; i < 10; ++i) {
+            Seasons.Entry[25] memory actual = seasons.topOf(season);
+            for (uint256 i; i < 12; ++i) {
                 if (ranking[i].points == 0) assertEq(actual[i].wallet, address(0));
                 else assertEq(actual[i].wallet, actors[ranking[i].actor]);
                 assertEq(actual[i].points, ranking[i].points);

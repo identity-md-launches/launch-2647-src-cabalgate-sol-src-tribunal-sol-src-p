@@ -7,6 +7,7 @@ import {CabalGate} from "../src/CabalGate.sol";
 import {Seasons} from "../src/Seasons.sol";
 import {PleaDistributor} from "../src/PleaDistributor.sol";
 import {Letterbox} from "../src/Letterbox.sol";
+import {Tribunal} from "../src/Tribunal.sol";
 import {PleaLaunch} from "../src/PleaLaunch.sol";
 import {PleaHook} from "../src/PleaHook.sol";
 
@@ -62,6 +63,7 @@ abstract contract ManifestFixture is Test {
     bytes[5] codes;
     address[5] expected;
     bytes32 letterboxHash;
+    bytes32 tribunalHash;
 
     function setUp() public virtual {
         vm.chainId(1);
@@ -70,6 +72,7 @@ abstract contract ManifestFixture is Test {
         owner = makeAddr("manifest owner");
         factory = new ManifestFactory();
         letterboxHash = keccak256(vm.getCode("Letterbox.sol:Letterbox"));
+        tribunalHash = keccak256(vm.getCode("Tribunal.sol:Tribunal"));
         _prepare(0, "PLEA.sol:PLEA", abi.encode(owner));
         _prepare(
             1,
@@ -93,7 +96,8 @@ abstract contract ManifestFixture is Test {
                 START,
                 ORACLE_ASSET,
                 MINT_ORACLE_FEE,
-                letterboxHash
+                letterboxHash,
+                tribunalHash
             )
         );
     }
@@ -144,6 +148,8 @@ abstract contract ManifestFixture is Test {
         assertEq(l.oracleAsset(), ORACLE_ASSET);
         assertEq(l.mintOracleFee(), MINT_ORACLE_FEE);
         assertEq(l.letterboxCodeHash(), keccak256(type(Letterbox).creationCode));
+        assertEq(l.tribunalCodeHash(), keccak256(type(Tribunal).creationCode));
+        assertEq(l.tribunal(), address(0), "the Tribunal is deployed after the launch");
         assertEq(l.hookInitCodeHash(), keccak256(_hookCode()));
         assertEq(p.totalSupply(), 0, "hook deployment must remain a separate step");
         assertEq(p.hook(), address(0));
@@ -223,6 +229,14 @@ contract AtomicManifestTest is ManifestFixture {
         assertEq(committed, keccak256(type(Letterbox).creationCode), "update launch.json after changing Letterbox");
         assertEq(committed, letterboxHash);
     }
+
+    /// launch.json commits to this build's Tribunal too (its 13th PleaLaunch argument).
+    function test_launchJsonCommitsToThisTribunal() public view {
+        string memory json = vm.readFile("launch.json");
+        bytes32 committed = vm.parseBytes32(vm.parseJsonString(json, ".contracts[4].constructorArgs[12]"));
+        assertEq(committed, keccak256(type(Tribunal).creationCode), "update launch.json after changing Tribunal");
+        assertEq(committed, tribunalHash);
+    }
 }
 
 contract RehearsalManifestTest is ManifestFixture {
@@ -290,6 +304,32 @@ contract PostLaunchTest is ManifestFixture {
         l.deployLetterbox(code);
     }
 
+    /// After the launch: anyone deploys the committed Tribunal (its own transaction); Seasons finds
+    /// it through PleaLaunch, and it reads the gate's signer and Intake.
+    function test_committedTribunalDeploysLater() public {
+        vm.roll(vm.getBlockNumber() + 1);
+        PleaLaunch l = PleaLaunch(expected[4]);
+        bytes memory code = vm.getCode("Tribunal.sol:Tribunal");
+        vm.expectRevert(PleaLaunch.WrongInitCode.selector);
+        l.deployTribunal(bytes.concat(code, hex"00"));
+        uint256 dataGas = _txDataGas(abi.encodeCall(PleaLaunch.deployTribunal, (code)));
+        vm.prank(makeAddr("anyone"));
+        uint256 before = gasleft();
+        address t = l.deployTribunal(code);
+        uint256 txGas = 21_000 + dataGas + (before - gasleft());
+        emit log_named_uint("deployTribunal transaction gas", txGas);
+        assertLt(txGas * IMD_GAS_HEADROOM_BPS / 10_000, TX_GAS_CAP);
+        assertEq(t, l.predictTribunal());
+        assertEq(l.tribunal(), t);
+        assertLe(t.code.length, 24_576);
+        assertEq(Tribunal(t).oracleSigner(), SIGNER);
+        assertEq(address(Tribunal(t).intake()), INTAKE);
+        assertEq(address(Tribunal(t).seasons()), expected[2]);
+        assertEq(Tribunal(t).plea(), expected[0]);
+        vm.expectRevert(PleaLaunch.TribunalAlreadyDeployed.selector);
+        l.deployTribunal(code);
+    }
+
     function test_committedHookDeploysLaterAndMintsOnlyTheFixedSplit() public {
         _assertWiring();
         vm.roll(vm.getBlockNumber() + 1);
@@ -307,9 +347,9 @@ contract PostLaunchTest is ManifestFixture {
         assertEq(p.hook(), h);
         assertEq(p.poolManager(), POOL_MANAGER);
         assertEq(p.totalSupply(), 1_000_000_000e18);
-        assertEq(p.balanceOf(h), 870_000_000e18);
-        assertEq(p.balanceOf(expected[2]), 30_000_000e18);
-        assertEq(p.balanceOf(expected[3]), 100_000_000e18);
+        assertEq(p.balanceOf(h), 820_000_000e18);
+        assertEq(p.balanceOf(expected[2]), 60_000_000e18);
+        assertEq(p.balanceOf(expected[3]), 120_000_000e18);
         assertEq(PleaHook(h).owner(), owner);
         assertEq(address(PleaHook(h).stacker()), STACKER);
         assertEq(PleaHook(h).seasons(), expected[2]);

@@ -379,7 +379,7 @@ contract TradingInvariantTest is SepoliaFixture {
         assertEq(plea.balanceOf(address(hook)), 0);
         assertEq(plea.balanceOf(address(gate)), 0);
         assertEq(plea.balanceOf(address(router)), 0);
-        assertEq(plea.balanceOf(address(distributor)), 100_000_000e18);
+        assertEq(plea.balanceOf(address(distributor)), 120_000_000e18);
     }
 
     /// @dev The Stacker is approved per credit and the credit consumes it (or the approval is reset

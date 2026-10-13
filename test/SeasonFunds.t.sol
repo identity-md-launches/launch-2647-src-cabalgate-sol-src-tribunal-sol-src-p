@@ -118,16 +118,16 @@ contract SeasonFundsTest is Test {
         skip(1 hours);
 
         close();
-        assertEq(imd.balanceOf(alice), 250e18);
-        assertEq(seasons.rollover(), 750e18);
+        assertEq(imd.balanceOf(alice), 45e18);
+        assertEq(seasons.rollover(), 955e18);
         assertEq(seasons.seasonFees(1), 2000e18);
         assertEq(seasons.seasonFees(2), 3000e18);
         assertEq(pm.balanceOf(address(seasons), uint256(uint160(address(imd)))), 0);
         close();
-        assertEq(imd.balanceOf(bob), 687.5e18); // 25% of 2000 + 750
-        assertEq(seasons.rollover(), 2062.5e18);
+        assertEq(imd.balanceOf(bob), 132.975e18); // 4.5% of 2000 + 955
+        assertEq(seasons.rollover(), 2822.025e18);
         close(); // season 2 has no eligible wallets
-        assertEq(seasons.rollover(), 5062.5e18);
+        assertEq(seasons.rollover(), 5822.025e18);
         assertEq(seasons.pot(), 6000e18 - imd.balanceOf(alice) - imd.balanceOf(bob));
         seasons.checkpoint(); // payouts and claim redemption are not new revenue
         assertEq(seasons.seasonFees(3), 0);
@@ -141,10 +141,10 @@ contract SeasonFundsTest is Test {
         fund(900e18);
         skip(1 hours);
         close();
-        assertEq(imd.balanceOf(alice), 25e18);
-        assertEq(seasons.rollover(), 75e18);
+        assertEq(imd.balanceOf(alice), 4.5e18);
+        assertEq(seasons.rollover(), 95.5e18);
         assertEq(seasons.seasonFees(1), 900e18);
-        assertEq(seasons.pot(), 975e18);
+        assertEq(seasons.pot(), 995.5e18);
     }
 
     function test_unobservedDonationCannotFlowBackwards() public {
@@ -154,7 +154,7 @@ contract SeasonFundsTest is Test {
         imd.mint(address(seasons), 900e18); // no notification yet
         skip(1 hours);
         close();
-        assertEq(imd.balanceOf(alice), 25e18);
+        assertEq(imd.balanceOf(alice), 4.5e18);
         assertEq(seasons.seasonFees(1), 900e18);
     }
 
@@ -164,12 +164,12 @@ contract SeasonFundsTest is Test {
         fund(1000e18);
         atSeason(1);
         skip(1 hours);
-        vm.mockCall(address(imd), abi.encodeCall(imd.transfer, (alice, 250e18)), abi.encode(false));
+        vm.mockCall(address(imd), abi.encodeCall(imd.transfer, (alice, 45e18)), abi.encode(false));
         close();
         assertEq(imd.balanceOf(alice), 0);
-        assertEq(imd.balanceOf(bob), 180e18);
-        assertEq(seasons.rollover(), 820e18);
-        assertEq(seasons.pot(), 820e18);
+        assertEq(imd.balanceOf(bob), 44.6e18);
+        assertEq(seasons.rollover(), 955.4e18);
+        assertEq(seasons.pot(), 955.4e18);
         seasons.checkpoint();
         assertEq(seasons.seasonFees(1), 0);
     }
@@ -206,11 +206,11 @@ contract SeasonFundsTest is Test {
         gate.die(uint64(vm.getBlockTimestamp()));
         skip(1 hours);
         close();
-        assertEq(imd.balanceOf(alice), 25e18);
+        assertEq(imd.balanceOf(alice), 4.5e18);
         assertEq(seasons.seasonFees(1), 900e18);
         close();
         seasons.flushToWall();
-        assertEq(imd.balanceOf(address(wall)), 975e18);
+        assertEq(imd.balanceOf(address(wall)), 995.5e18);
     }
 
     function test_claimRedemptionCallbackCannotBeInvokedOutsideUnlock() public {
@@ -231,21 +231,21 @@ contract SeasonFundsTest is Test {
         else fund(later);
         skip(1 hours);
         close();
-        uint256 paid = uint256(first) * 2500 / 10000;
+        uint256 paid = uint256(first) * 450 / 10000;
         assertEq(imd.balanceOf(alice), paid);
         assertEq(seasons.pot() + paid, uint256(first) + later);
         assertEq(seasons.rollover(), first - paid);
         assertEq(seasons.seasonFees(1), later);
     }
 
-    // ---------------------------------------------------------------- PLEA bonus (3% of supply)
+    // ---------------------------------------------------------------- PLEA bonus (6% of supply)
 
-    uint256 constant BONUS = 5_000_000e18;
+    uint256 constant BONUS = 10_000_000e18;
 
     function test_bonusIsMintedToSeasonsAndCannotBeWithdrawn() public view {
-        assertEq(plea.balanceOf(address(seasons)), 30_000_000e18);
-        assertEq(plea.balanceOf(address(wall)), 870_000_000e18);
-        assertEq(seasons.BONUS_PER_SEASON() * seasons.BONUS_SEASONS(), 30_000_000e18);
+        assertEq(plea.balanceOf(address(seasons)), 60_000_000e18);
+        assertEq(plea.balanceOf(address(wall)), 820_000_000e18);
+        assertEq(seasons.BONUS_PER_SEASON() * seasons.BONUS_SEASONS(), 60_000_000e18);
     }
 
     function test_bonusPaysTheTopTenAndBurnsTheUnpaidShares() public {
@@ -258,18 +258,18 @@ contract SeasonFundsTest is Test {
         skip(1 hours);
         uint256 supply = plea.totalSupply();
         vm.expectEmit(true, true, false, true, address(seasons));
-        emit Seasons.BonusPaid(0, alice, 1, BONUS * 2500 / 10_000);
+        emit Seasons.BonusPaid(0, alice, 1, BONUS * 450 / 10_000);
         vm.expectEmit(true, true, false, true, address(seasons));
-        emit Seasons.BonusPaid(0, bob, 2, BONUS * 1800 / 10_000);
+        emit Seasons.BonusPaid(0, bob, 2, BONUS * 446 / 10_000);
         vm.expectEmit(true, false, false, true, address(seasons));
-        emit Seasons.BonusBurned(0, BONUS * 5700 / 10_000);
+        emit Seasons.BonusBurned(0, BONUS * 9104 / 10_000);
         close();
-        assertEq(plea.balanceOf(alice), 1_250_000e18);
-        assertEq(plea.balanceOf(bob), 900_000e18);
+        assertEq(plea.balanceOf(alice), 450_000e18);
+        assertEq(plea.balanceOf(bob), 446_000e18);
         assertEq(plea.balanceOf(carol), 0);
-        assertEq(seasons.bonusBurned(), 2_850_000e18);
-        assertEq(plea.totalSupply(), supply - 2_850_000e18);
-        assertEq(plea.balanceOf(address(seasons)), 25_000_000e18);
+        assertEq(seasons.bonusBurned(), 9_104_000e18);
+        assertEq(plea.totalSupply(), supply - 9_104_000e18);
+        assertEq(plea.balanceOf(address(seasons)), 50_000_000e18);
     }
 
     function test_prizePleaStaysGatedWhileTheCabalWatches() public {
@@ -287,7 +287,7 @@ contract SeasonFundsTest is Test {
         skip(1 hours);
         close();
         assertEq(seasons.bonusBurned(), BONUS);
-        assertEq(plea.balanceOf(address(seasons)), 25_000_000e18);
+        assertEq(plea.balanceOf(address(seasons)), 50_000_000e18);
     }
 
     function test_onlyTheFirstSixSeasonsPayABonus() public {
@@ -299,11 +299,11 @@ contract SeasonFundsTest is Test {
         for (uint256 s; s < 6; ++s) {
             close();
         }
-        assertEq(plea.balanceOf(alice), 6 * 1_250_000e18);
+        assertEq(plea.balanceOf(alice), 6 * 450_000e18);
         assertEq(plea.balanceOf(address(seasons)), 0);
         uint256 burned = seasons.bonusBurned();
         close(); // season 7: IMD prizes only
-        assertEq(plea.balanceOf(alice), 6 * 1_250_000e18);
+        assertEq(plea.balanceOf(alice), 6 * 450_000e18);
         assertEq(seasons.bonusBurned(), burned);
     }
 
@@ -316,26 +316,26 @@ contract SeasonFundsTest is Test {
         close(); // season 0: alice is paid
         close(); // season 1: ended by the death, nobody qualified
         assertTrue(seasons.finished());
-        assertEq(plea.balanceOf(address(seasons)), 20_000_000e18); // seasons 2 to 5 never ran
+        assertEq(plea.balanceOf(address(seasons)), 40_000_000e18); // seasons 2 to 5 never ran
         uint256 supply = plea.totalSupply();
         seasons.flushToWall();
         assertEq(plea.balanceOf(address(seasons)), 0);
-        assertEq(plea.totalSupply(), supply - 20_000_000e18);
-        assertEq(seasons.bonusBurned(), 3_750_000e18 + 5_000_000e18 + 20_000_000e18);
-        assertEq(plea.balanceOf(alice), 1_250_000e18);
+        assertEq(plea.totalSupply(), supply - 40_000_000e18);
+        assertEq(seasons.bonusBurned(), 9_550_000e18 + 10_000_000e18 + 40_000_000e18);
+        assertEq(plea.balanceOf(alice), 450_000e18);
     }
 
     function test_flushBeforeTheEndCannotTouchTheBonus() public {
         vm.expectRevert(Seasons.NotFinished.selector);
         seasons.flushToWall();
-        assertEq(plea.balanceOf(address(seasons)), 30_000_000e18);
+        assertEq(plea.balanceOf(address(seasons)), 60_000_000e18);
     }
 
     function test_failedBonusTransferIsBurnedNotStuck() public {
         leader(0, alice, 1);
         atSeason(1);
         skip(1 hours);
-        vm.mockCall(address(plea), abi.encodeCall(plea.transfer, (alice, 1_250_000e18)), abi.encode(false));
+        vm.mockCall(address(plea), abi.encodeCall(plea.transfer, (alice, 450_000e18)), abi.encode(false));
         close();
         assertEq(plea.balanceOf(alice), 0);
         assertEq(seasons.bonusBurned(), BONUS);

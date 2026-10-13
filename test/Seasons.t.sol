@@ -100,7 +100,7 @@ contract SeasonsTest is Fixture {
         seasons.record(scored(bob, 45));
         seasons.record(scored(carol, 40));
         seasons.record(scored(carol, 40));
-        Seasons.Entry[10] memory t = seasons.topOf(0);
+        Seasons.Entry[25] memory t = seasons.topOf(0);
         assertEq(t[0].wallet, alice);
         assertEq(t[0].points, 126);
         assertEq(t[1].wallet, carol);
@@ -120,20 +120,24 @@ contract SeasonsTest is Fixture {
         seasons.record(id);
     }
 
-    function test_tenthPlaceIsEvictedByABetterWallet() public {
+    function test_tiesRankTheEarlierPleaFirstAndALaterTieSlotsInBelow() public {
         for (uint256 i; i < 11; ++i) {
             seasons.record(scored(players[i], 35 + (i % 10)));
         }
-        Seasons.Entry[10] memory t = seasons.topOf(0);
+        Seasons.Entry[25] memory t = seasons.topOf(0);
         assertEq(t[0].points, 44);
-        // players[10] scored 35 and ties players[0]'s 35: the earlier plea keeps tenth place.
+        // players[10] scored 35 and ties players[0]'s 35: the earlier plea ranks first of the two.
         assertEq(t[9].wallet, players[0]);
+        assertEq(t[10].wallet, players[10]);
         seasons.record(scored(players[11], 36));
         t = seasons.topOf(0);
-        // players[11] ties players[1] at 36 but pleaded later: it ranks just below, players[0] is out.
+        // players[11] ties players[1] at 36 but pleaded later: it ranks just below, the 35s move down.
         assertEq(t[8].wallet, players[1]);
         assertEq(t[9].wallet, players[11]);
-        for (uint256 i = 1; i < 10; ++i) {
+        assertEq(t[10].wallet, players[0]);
+        assertEq(t[11].wallet, players[10]);
+        assertEq(t[12].wallet, address(0), "twelve wallets fill twelve of the twenty-five ranks");
+        for (uint256 i = 1; i < 12; ++i) {
             assertGe(t[i - 1].points, t[i].points);
         }
     }
@@ -166,10 +170,10 @@ contract SeasonsTest is Fixture {
         uint256 c0 = imd.balanceOf(carol);
         uint256 b0 = imd.balanceOf(bob);
         seasons.closeSeason(ids);
-        assertEq(imd.balanceOf(alice) - a0, pot * 2500 / 10_000);
-        assertEq(imd.balanceOf(carol) - c0, pot * 1800 / 10_000);
+        assertEq(imd.balanceOf(alice) - a0, pot * 450 / 10_000);
+        assertEq(imd.balanceOf(carol) - c0, pot * 446 / 10_000);
         assertEq(imd.balanceOf(bob), b0);
-        assertEq(imd.balanceOf(address(seasons)), pot - pot * 2500 / 10_000 - pot * 1800 / 10_000);
+        assertEq(imd.balanceOf(address(seasons)), pot - pot * 450 / 10_000 - pot * 446 / 10_000);
         assertTrue(seasons.closed(0));
         assertEq(seasons.nextToClose(), 1);
 
@@ -194,7 +198,7 @@ contract SeasonsTest is Fixture {
         seasons.flushToWall();
         skip(DEADMAN + 1 hours);
         assertFalse(gate.cabalAlive());
-        seasons.closeSeason(new uint256[](0)); // records nothing new; pays alice's 25%
+        seasons.closeSeason(new uint256[](0)); // records nothing new; pays alice's 4.5%
         assertEq(seasons.nextToClose(), 1);
         vm.expectRevert(abi.encodeWithSelector(Seasons.NotReady.selector, 1));
         seasons.closeSeason(new uint256[](0)); // no season after the death

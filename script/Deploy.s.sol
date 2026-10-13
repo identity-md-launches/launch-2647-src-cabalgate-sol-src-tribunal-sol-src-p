@@ -7,6 +7,7 @@ import {CabalGate} from "../src/CabalGate.sol";
 import {Seasons} from "../src/Seasons.sol";
 import {PleaDistributor} from "../src/PleaDistributor.sol";
 import {Letterbox} from "../src/Letterbox.sol";
+import {Tribunal} from "../src/Tribunal.sol";
 import {PleaLaunch} from "../src/PleaLaunch.sol";
 
 /// @notice What the IMD launch does, as one script, for local runs and gas checks (a fork or anvil).
@@ -41,9 +42,11 @@ contract Deploy is Script {
             vm.envUint("START"),
             vm.envAddress("ORACLE_ASSET"),
             vm.envBool("MINT_ORACLE_FEE"),
-            keccak256(type(Letterbox).creationCode)
+            keccak256(type(Letterbox).creationCode),
+            keccak256(type(Tribunal).creationCode)
         );
         address letterbox = launch.deployLetterbox(type(Letterbox).creationCode);
+        address tribunal = launch.deployTribunal(type(Tribunal).creationCode);
         vm.stopBroadcast();
         console2.log("PLEA", address(plea));
         console2.log("CabalGate", address(gate));
@@ -51,5 +54,6 @@ contract Deploy is Script {
         console2.log("PleaDistributor", address(distributor));
         console2.log("PleaLaunch", address(launch));
         console2.log("Letterbox", letterbox);
+        console2.log("Tribunal", tribunal);
     }
 }

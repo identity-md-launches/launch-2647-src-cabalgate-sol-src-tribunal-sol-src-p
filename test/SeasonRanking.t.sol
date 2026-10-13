@@ -60,7 +60,7 @@ contract SeasonRankingTest is Test {
         seasons.record(1);
         seasons.record(3);
         seasons.record(2);
-        Seasons.Entry[10] memory top = seasons.topOf(0);
+        Seasons.Entry[25] memory top = seasons.topOf(0);
         assertEq(top[0].wallet, bob, "reverse recording stole a tied wallet's rank");
         assertEq(top[0].points, 90);
         assertEq(top[0].pleaId, 3);
@@ -104,9 +104,9 @@ contract SeasonRankingTest is Test {
         seasons.checkpoint();
         vm.warp(uint256(gate.startedAt()) + gate.SEASON() + 1 hours);
         seasons.closeSeason(ids);
-        assertEq(imd.balanceOf(bob), 250e18, "wrong wallet received first prize");
-        assertEq(imd.balanceOf(alice), 180e18);
-        assertEq(seasons.pot(), 570e18);
+        assertEq(imd.balanceOf(bob), 45e18, "wrong wallet received first prize");
+        assertEq(imd.balanceOf(alice), 44.6e18);
+        assertEq(seasons.pot(), 910.4e18);
     }
 
     /// @dev Independent batch model: sort all 60 results, take each wallet's first three, then
@@ -158,7 +158,7 @@ contract SeasonRankingTest is Test {
                 ) (expected[i], expected[j]) = (expected[j], expected[i]);
             }
         }
-        Seasons.Entry[10] memory top = seasons.topOf(0);
+        Seasons.Entry[25] memory top = seasons.topOf(0);
         for (uint256 i; i < 10; ++i) {
             assertEq(top[i].wallet, expected[i].wallet, "wallet order");
             assertEq(top[i].points, expected[i].points, "points");

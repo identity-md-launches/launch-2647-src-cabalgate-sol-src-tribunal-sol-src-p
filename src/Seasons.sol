@@ -10,16 +10,20 @@ import {IPLEA, IGate, IPleaHook} from "./interfaces/IPleaParts.sol";
 /// @title Seasons — PLEA's leaderboard and prizes while the Cabal lives
 /// @notice Seasons of `SEASON` each run back to back from the moment trading opens; the last one
 /// ends when the Cabal dies. An approved plea earns its judges' score (0-45) as points; each
-/// wallet's best three count. When a season ends anyone calls `closeSeason`: the top 10 with at
-/// least 60 points are paid 25/18/14/11/9/7/6/4/3/3 % of the prize pot in IMD and unpaid shares roll
-/// over. The pot is fed by the hook's
-/// 0.25% prize fee. After the last season is closed, whatever is left goes to the buy wall.
-/// @notice PLEA bonus: Seasons holds 3% of the supply, minted to it at launch. Each of the first
-/// six seasons pays 0.5% of the supply (5,000,000 PLEA) to the same top 10 with the same shares;
-/// a share nobody qualifies for is burned when the season closes. If the Cabal dies before the
-/// sixth season, `flushToWall` burns the rest. Nobody can withdraw it.
+/// wallet's best three count. When a season ends anyone calls `closeSeason`: the top 25 with at
+/// least 60 points are paid shares of the prize pot in IMD that fall in a straight line from 4.50%
+/// (rank 1) to 3.50% (rank 25), and unpaid shares roll over. The pot is fed by the hook's 0.25%
+/// prize fee and by overruled objections' stakes. After the last season is closed, whatever is left
+/// goes to the buy wall.
+/// @notice PLEA bonus: Seasons holds 6% of the supply, minted to it at launch. Each of the first
+/// six seasons pays 10,000,000 PLEA to the same top 25 with the same shares; a share nobody
+/// qualifies for is burned when the season closes. If the Cabal dies before the sixth season,
+/// `flushToWall` burns the rest. Nobody can withdraw it.
 /// @notice The owner of PLEA does not play: its pleas earn no points, and no prize or bonus goes
 /// to it, so the prize fee always leaves the team for good.
+/// @notice Objection! (the Tribunal, deployed after the launch): a plea's points wait while others
+/// may object to it or an objection is pending; a sustained objection means no points, and the
+/// recorded score is the lowest any panel gave. With no Tribunal, points are recorded as before.
 contract Seasons {
     using SafeERC20 for IERC20;
 
@@ -30,6 +34,8 @@ contract Seasons {
     error NotFinished();
     error CallbackNotExpected();
     error OwnerExcluded();
+    error Held(uint256 pleaId);
+    error ObjectionSustained(uint256 pleaId);
 
     event Recorded(uint256 indexed pleaId, uint256 indexed season, address indexed wallet, uint8 score, uint16 points);
     event SeasonClosedOut(uint256 indexed season, uint256 pot, uint256 paid);
@@ -47,19 +53,23 @@ contract Seasons {
 
     // ---------------------------------------------------------------- agreed numbers
     uint256 public constant MIN_POINTS = 60;
-    uint256 public constant TOP = 10;
-    /// @notice After a season ends, time to record late approvals before it can be closed.
+    uint256 public constant TOP = 25;
+    /// @notice After a season ends, time to record late approvals before it can be closed. An
+    /// objection window plus a pending objection's expiry (40 minutes) always ends inside it.
     uint256 public constant CLOSE_GRACE = 1 hours;
-    /// @notice The PLEA bonus: 0.5% of the supply for each of the first six seasons (3% in all).
+    /// @notice The PLEA bonus: 10,000,000 PLEA for each of the first six seasons (6% in all).
     uint256 public constant BONUS_SEASONS = 6;
-    uint256 public constant BONUS_PER_SEASON = 5_000_000e18;
+    uint256 public constant BONUS_PER_SEASON = 10_000_000e18;
+    /// @dev Prize shares in basis points, two bytes per rank, 4.50% down to 3.50%, 10,000 in all.
+    bytes internal constant SHARES =
+        hex"01c201be01ba01b601b101ad01a901a501a1019c019801940190018c01880184017f017b01770173016f016a01660162015e";
 
     IPLEA public immutable plea;
     IGate public immutable gate;
     IERC20 public immutable imd;
     uint256 public immutable SEASON;
 
-    mapping(uint256 => Entry[10]) internal _top;
+    mapping(uint256 => Entry[TOP]) internal _top;
     mapping(uint256 => mapping(address => uint8[3])) internal _best;
     mapping(uint256 => mapping(address => uint64[3])) internal _bestPleaIds;
     mapping(uint256 => bool) public closed;
@@ -83,8 +93,18 @@ contract Seasons {
 
     // ================================================================ views
 
-    function topOf(uint256 season) external view returns (Entry[10] memory) {
+    function topOf(uint256 season) external view returns (Entry[TOP] memory) {
         return _top[season];
+    }
+
+    /// @notice The share of the pot and the bonus paid to `rank` (0 = first), in basis points.
+    function shareBps(uint256 rank) public pure returns (uint256) {
+        return (uint256(uint8(SHARES[2 * rank])) << 8) | uint8(SHARES[2 * rank + 1]);
+    }
+
+    /// @notice The wallets that never earn points, prizes or the bonus (read by the Tribunal).
+    function excluded(address wallet) external view returns (bool) {
+        return _excluded(wallet);
     }
 
     function bestOf(uint256 season, address wallet) external view returns (uint8[3] memory) {
@@ -146,7 +166,8 @@ contract Seasons {
     // ================================================================ points
 
     /// @notice Records an approved plea's score for its season. Anyone may call it; the seller has
-    /// every reason to. Must happen before the season is closed.
+    /// every reason to. Must happen before the season is closed, and after the plea's objection
+    /// window: a sustained objection leaves no points, an overruled one may lower the score.
     function record(uint256 pleaId) external {
         (address seller, uint8 score, bool approved, uint64 verdictAt) = gate.result(pleaId);
         if (!approved) revert NotApproved(pleaId);
@@ -154,7 +175,26 @@ contract Seasons {
         if (_excluded(seller)) revert OwnerExcluded();
         uint256 season = _seasonOf(verdictAt);
         if (closed[season]) revert SeasonClosed(season);
-        _record(pleaId, season, seller, score);
+        (bool held, bool sustained, uint8 lowest) = _standing(pleaId);
+        if (held) revert Held(pleaId);
+        if (sustained) revert ObjectionSustained(pleaId);
+        _record(pleaId, season, seller, lowest < score ? lowest : score);
+    }
+
+    /// @dev What the Tribunal says about a plea, read through PLEA's launcher. Read, never trust: a
+    /// launcher without `tribunal()` or no Tribunal deployed means today's behaviour, and a Tribunal
+    /// that reverts can never block a record or a close.
+    function _standing(uint256 pleaId) internal view returns (bool held, bool sustained, uint8 lowest) {
+        lowest = type(uint8).max;
+        address launcher = plea.launcher();
+        if (launcher == address(0)) return (false, false, lowest);
+        (bool ok, bytes memory ret) = launcher.staticcall(abi.encodeWithSignature("tribunal()"));
+        if (!ok || ret.length != 32) return (false, false, lowest);
+        address t = abi.decode(ret, (address));
+        if (t == address(0)) return (false, false, lowest);
+        (ok, ret) = t.staticcall(abi.encodeWithSignature("standing(uint256)", pleaId));
+        if (!ok || ret.length != 96) return (false, false, lowest);
+        return abi.decode(ret, (bool, bool, uint8));
     }
 
     function _seasonOf(uint64 verdictAt) internal view returns (uint256) {
@@ -189,8 +229,8 @@ contract Seasons {
     }
 
     function _insertWallet(uint256 season, Entry memory ne) internal {
-        Entry[10] storage t = _top[season];
-        Entry[10] memory m = t;
+        Entry[TOP] storage t = _top[season];
+        Entry[TOP] memory m = t;
         uint256 pos = TOP;
         for (uint256 k; k < TOP; ++k) {
             if (m[k].wallet == ne.wallet) {
@@ -216,7 +256,7 @@ contract Seasons {
     // ================================================================ closing
 
     /// @notice Closes the oldest open season once it has ended (plus a one-hour grace): records any
-    /// listed approvals first, then pays the top 10 (IMD and, in the first six seasons, the PLEA
+    /// listed approvals first, then pays the top 25 (IMD and, in the first six seasons, the PLEA
     /// bonus). Anyone may call it.
     function closeSeason(uint256[] calldata pleaIds) external {
         for (uint256 i; i < pleaIds.length; ++i) {
@@ -234,11 +274,11 @@ contract Seasons {
         rollover = 0;
         _redeemClaims();
         uint256 paid;
-        Entry[10] memory t = _top[season];
+        Entry[TOP] memory t = _top[season];
         _dropOwner(t);
         for (uint256 i; i < TOP; ++i) {
             if (t[i].wallet == address(0) || t[i].points < MIN_POINTS) continue;
-            uint256 amount = amountIn * _shareBps(i) / 10_000;
+            uint256 amount = amountIn * shareBps(i) / 10_000;
             if (amount != 0 && _pay(t[i].wallet, amount)) {
                 paid += amount;
                 emit PrizePaid(season, t[i].wallet, uint8(i + 1), amount);
@@ -294,18 +334,21 @@ contract Seasons {
         return "";
     }
 
+    /// @dev Skips, never reverts: a close may list pleas of the running season that are still held.
     function _tryRecord(uint256 pleaId) internal {
         if (recorded[pleaId]) return;
         (address seller, uint8 score, bool approved, uint64 verdictAt) = gate.result(pleaId);
         if (!approved || _excluded(seller)) return;
         uint256 season = _seasonOf(verdictAt);
         if (closed[season]) return;
-        _record(pleaId, season, seller, score);
+        (bool held, bool sustained, uint8 lowest) = _standing(pleaId);
+        if (held || sustained) return;
+        _record(pleaId, season, seller, lowest < score ? lowest : score);
     }
 
     /// @dev Points recorded before an ownership transfer: the current owner is not paid. Its rank's
     /// share is not paid to anyone else either (the IMD rolls over, the PLEA bonus share is burned).
-    function _dropOwner(Entry[10] memory t) internal view {
+    function _dropOwner(Entry[TOP] memory t) internal view {
         (address a,, address c) = _owners();
         for (uint256 i; i < TOP; ++i) {
             address w = t[i].wallet;
@@ -332,27 +375,15 @@ contract Seasons {
         return w != address(0) && (w == a || w == c);
     }
 
-    function _shareBps(uint256 rank) internal pure returns (uint256) {
-        if (rank == 0) return 2_500;
-        if (rank == 1) return 1_800;
-        if (rank == 2) return 1_400;
-        if (rank == 3) return 1_100;
-        if (rank == 4) return 900;
-        if (rank == 5) return 700;
-        if (rank == 6) return 600;
-        if (rank == 7) return 400;
-        return 300;
-    }
-
-    /// @dev Pays the season's PLEA bonus to the qualifying top 10 (same shares and minimum as the
+    /// @dev Pays the season's PLEA bonus to the qualifying top 25 (same shares and minimum as the
     /// IMD prizes) and burns what is not paid. Seasons is an exempt sender, so the transfers work
     /// while the Cabal watches; one that fails is burned with the rest.
-    function _payBonus(uint256 season, Entry[10] memory t) internal {
+    function _payBonus(uint256 season, Entry[TOP] memory t) internal {
         IERC20 token = IERC20(address(plea));
         uint256 paid;
         for (uint256 i; i < TOP; ++i) {
             if (t[i].wallet == address(0) || t[i].points < MIN_POINTS) continue;
-            uint256 amount = BONUS_PER_SEASON * _shareBps(i) / 10_000;
+            uint256 amount = BONUS_PER_SEASON * shareBps(i) / 10_000;
             (bool ok, bytes memory ret) = address(token).call(abi.encodeCall(IERC20.transfer, (t[i].wallet, amount)));
             if (ok && (ret.length == 0 || abi.decode(ret, (bool)))) {
                 paid += amount;

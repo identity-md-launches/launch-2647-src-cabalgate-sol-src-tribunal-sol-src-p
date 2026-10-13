@@ -179,7 +179,7 @@ contract JudgeFindingsTest is Fixture {
         uint256 pleaBefore = plea.balanceOf(alice);
         seasons.closeSeason(new uint256[](0));
         assertGt(imd.balanceOf(alice), imdBefore, "the leader is paid");
-        assertEq(plea.balanceOf(alice) - pleaBefore, 1_250_000e18, "and gets the bonus");
+        assertEq(plea.balanceOf(alice) - pleaBefore, 450_000e18, "and gets the bonus");
         vm.prank(alice);
         plea.acceptOwnership();
         assertEq(plea.owner(), alice);

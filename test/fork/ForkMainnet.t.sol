@@ -11,6 +11,7 @@ import {CabalGate} from "../../src/CabalGate.sol";
 import {Seasons} from "../../src/Seasons.sol";
 import {PleaDistributor} from "../../src/PleaDistributor.sol";
 import {Letterbox} from "../../src/Letterbox.sol";
+import {Tribunal} from "../../src/Tribunal.sol";
 import {PleaLaunch} from "../../src/PleaLaunch.sol";
 import {PleaHook} from "../../src/PleaHook.sol";
 import {OracleAttestation} from "../../src/OracleAttestation.sol";
@@ -117,7 +118,8 @@ contract ForkMainnetTest is Test {
             block.timestamp + 7 days,
             address(IMD),
             false,
-            keccak256(type(Letterbox).creationCode)
+            keccak256(type(Letterbox).creationCode),
+            keccak256(type(Tribunal).creationCode)
         );
         // After the launch transaction: anyone deploys the committed Letterbox.
         letterbox = Letterbox(launch.deployLetterbox(type(Letterbox).creationCode));
@@ -235,7 +237,7 @@ contract ForkMainnetTest is Test {
         assertEq(feeImd, 0.5e18 + TIP, "a letter buys the oracle fee and the tip");
         (feeImd,) = letterbox.feesFor(true);
         assertEq(feeImd, 0.5e18 + 0.35e18 + TIP, "an appeal also buys the wall share");
-        assertEq(plea.balanceOf(address(seasons)), 30_000_000e18);
+        assertEq(plea.balanceOf(address(seasons)), 60_000_000e18);
         assertTrue(gate.cabalAlive());
     }
 

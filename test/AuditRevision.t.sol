@@ -80,7 +80,7 @@ contract AuditRevisionTest is Fixture {
         assertGt(seasons.pot(), earned * 2);
         uint256 before = imd.balanceOf(alice);
         seasons.closeSeason(new uint256[](0));
-        assertEq(imd.balanceOf(alice) - before, earned * 2500 / 10000, "later fees paid backwards");
+        assertEq(imd.balanceOf(alice) - before, earned * 450 / 10000, "later fees paid backwards");
     }
 
     function test_secondLargeBuyPreservesEveryPayee() public {
@@ -138,9 +138,9 @@ contract AuditRevisionTest is Fixture {
         vm.warp(gate.startedAt() + SEASON + 1 hours);
         uint256 before = imd.balanceOf(alice);
         seasons.closeSeason(new uint256[](0));
-        assertEq(imd.balanceOf(alice) - before, earned * 2500 / 10000);
+        assertEq(imd.balanceOf(alice) - before, earned * 450 / 10000);
         assertEq(pm.balanceOf(address(seasons), claimId), 0);
-        assertEq(seasons.pot(), earned - earned * 2500 / 10000);
+        assertEq(seasons.pot(), earned - earned * 450 / 10000);
     }
 
     function test_expiredAppealCanBeRetriedWithoutLiftingDenialCooldown() public {

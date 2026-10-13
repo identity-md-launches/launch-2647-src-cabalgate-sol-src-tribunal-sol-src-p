@@ -7,8 +7,8 @@ import {Ownable2Step} from "@openzeppelin/contracts/access/Ownable2Step.sol";
 import {IGate} from "./interfaces/IPleaParts.sol";
 
 /// @title PLEA — the sell-gated meme token
-/// @notice 1e9 supply, 18 decimals, minted once in `init` (87% hook, 3% Seasons' bonus prizes,
-/// 10% distributor). While the
+/// @notice 1e9 supply, 18 decimals, minted once in `init` (82% hook, 6% Seasons' bonus prizes,
+/// 12% distributor: the swarm's 10% and a 2% airdrop). While the
 /// gate says the Cabal is watching (`restricted()`), transfers are limited: see `_update`. When
 /// the Cabal dies the restriction ends for good.
 contract PLEA is ERC20, Ownable2Step {
@@ -92,8 +92,8 @@ contract PLEA is ERC20, Ownable2Step {
         _transfer(from, lb, amount);
     }
 
-    /// @notice Records the hook and mints the supply: 87% to the hook, 3% to Seasons (the PLEA
-    /// bonus prizes of the first six seasons) and 10% to the distributor. Only the launcher,
+    /// @notice Records the hook and mints the supply: 82% to the hook, 6% to Seasons (the PLEA
+    /// bonus prizes of the first six seasons) and 12% to the distributor. Only the launcher,
     /// once (from `deployHook`).
     function init(address hook_, address poolManager_) external {
         if (msg.sender != launcher) revert NotLauncher();
@@ -101,9 +101,9 @@ contract PLEA is ERC20, Ownable2Step {
         if (hook_ == address(0) || poolManager_ == address(0)) revert ZeroAddress();
         hook = hook_;
         poolManager = poolManager_;
-        _mint(hook_, TOTAL_SUPPLY * 87 / 100);
-        _mint(seasons, TOTAL_SUPPLY * 3 / 100);
-        _mint(distributor, TOTAL_SUPPLY * 10 / 100);
+        _mint(hook_, TOTAL_SUPPLY * 82 / 100);
+        _mint(seasons, TOTAL_SUPPLY * 6 / 100);
+        _mint(distributor, TOTAL_SUPPLY * 12 / 100);
         emit Initialized(hook_);
     }
 

@@ -17,6 +17,7 @@ Launched through the IMD swarm straight from this repository (`launch.open` with
   - [The fact score](#the-fact-score)
   - [The dead-man](#the-dead-man)
   - [Seasons](#seasons)
+  - [Objection!](#objection)
 - [Fees](#fees)
 - [Contracts](#contracts)
 - [Launch and lifecycle](#launch-and-lifecycle)
@@ -30,12 +31,13 @@ Launched through the IMD swarm straight from this repository (`launch.open` with
 
 | | |
 |---|---|
-| Supply | 1,000,000,000 PLEA (87% pool liquidity, 3% season bonus prizes, 10% Merkle distributor) |
+| Supply | 1,000,000,000 PLEA (82% pool liquidity, 6% season bonus prizes, 12% Merkle distributor: the swarm's 10% and a 2% airdrop) |
 | Pool | PLEA/IMD on Uniswap v4 with a fork of POOL4's CappedBurnHook: LP fee 0, the hook is the only LP, liquidity locked forever |
 | Selling | Through the Cabal's gate while it lives, from the site or by sending a letter (a text transaction, e.g. from Etherscan); owner-allowlisted senders are exempt |
 | Judges | 30-seat oracle panel, quorum 17, score 0–45 |
 | Trade fee | 1.75%, paid inside the swap (0.5% back to the trader as staked IMD) |
-| Seasons | 15 days each (5 hours on Sepolia); the top 10 wallets with 60+ points share the IMD pot, and for the first six seasons 5,000,000 PLEA each |
+| Seasons | 15 days each (5 hours on Sepolia); the top 25 wallets with 60+ points share the IMD pot (4.50% for first place down to 3.50% for 25th), and for the first six seasons 10,000,000 PLEA each |
+| Objection! | For 20 minutes after an approval anyone else may object (0.5 IMD fee + 0.35 IMD stake): a second panel re-scores the plea; its points can only fall, and fall to nothing if the new score is more than 2 below the need |
 | End state | 33h with no verdict → the Cabal dies → free trading, no comeback |
 
 ---
@@ -90,7 +92,7 @@ A command word is matched in capitals at the very start, followed by a space, a 
 - **Fees are paid in PLEA, in the letter's own transaction.** The gate sells just enough of your PLEA, through the hook with the normal 1.75% fee and your own 0.5% cashback, for exactly the IMD needed: the 0.5 IMD oracle fee, a **0.25 IMD runner tip** and, for an appeal, the 0.35 IMD wall share. It may spend at most the hourly snapshot value **+10%**; unspent PLEA comes straight back. A letter whose fees would take more than 10% of your PLEA, or whose 20% is under 1,000 PLEA, is refused (an appeal's fees may instead go up to the appeal's own amount, so whoever could plead by letter can appeal by letter). On Sepolia the oracle fee token is a separate test token, so the Letterbox mints that 0.5 instead of buying it.
 - **Escrow.** The plea's PLEA waits in the Letterbox. It keeps its buy record: only the final sale reduces it.
 - **Auto-sell.** Once approved, **anyone** may call `deliver(id)` inside the 7-minute window: the gate sells the escrow for at least **95%** of its snapshot value, **0.35 IMD of the sale (never more than the sale) goes to the season's prize pot** (the auto-sell fee; selling by hand on the site costs nothing extra), the rest goes to the writer, the points are recorded, and the caller earns the tip. The fee is only ever taken from a sale, and a plea worth less than 0.70 IMD at the snapshot is refused so the fee never eats a sale. Every other ending (denied, upheld, no verdict, expired, lapsed) is closed by `settle(id)` (anyone), which returns the escrow and the tip to the writer; a lapsed approval is recorded first, since it still counts. The writer's next letter settles the previous one too.
-- **Status on chain.** `status(address)` returns one sentence about your latest plea (`Plea #7 · APPROVED (38 vs 33) · selling automatically`, `… · DENIED (31 vs 33) · send APPEAL <text> before 07:05 UTC`, …); `leaderboard()` returns the running season's top 10 with each rank's IMD prize and PLEA bonus at the current pot.
+- **Status on chain.** `status(address)` returns one sentence about your latest plea (`Plea #7 · APPROVED (38 vs 33) · selling automatically`, `… · DENIED (31 vs 33) · send APPEAL <text> before 07:05 UTC`, …); `leaderboard()` returns the running season's top 25 with each rank's IMD prize and PLEA bonus at the current pot. With Objection! the points line says where a plea stands: `+40 points held until 07:25 UTC (objections open)`, `+40 points held: an objection is pending`, `+36 points once recorded` (the lowest panel's score) or `no points: an objection was sustained`.
 - **The site's "sell automatically" box** uses `plead(amount, text)` and `appealAuto(originalId, text)` on the Letterbox: same escrow, fees in PLEA and tip, any valid amount. Pleas through the Letterbox carry flags (`PleaFlags` event: by letter, auto-sell); the gate's own `executeSell` refuses an escrowed plea.
 - **No accidental calls.** No public function ID of the Letterbox can be the start of valid letter text (its four bytes are never the beginning of control-free UTF-8); a test checks the whole ABI. ETH sent to it is refused.
 - Pleas sent by letter are flagged (`PleaFlags`: by letter, auto-sell) so the Wall can show them. Letters earn **no extra points**.
@@ -123,15 +125,32 @@ The Cabal is born when trading opens and lives until **33 hours** pass without a
 
 - Seasons of **15 days** run back to back from the moment trading opens. The last one ends when the Cabal dies.
 - An approved plea earns its score as **points**. Each wallet's **best three** scores in a season count.
-- Points are recorded by `Seasons.record(pleaId)` (anyone; the seller has every reason to), or by `closeSeason`.
+- Points are recorded by `Seasons.record(pleaId)` (anyone; the seller has every reason to), or by `closeSeason`, once the plea's objection window has closed and no objection is pending (see [Objection!](#objection)).
 - When a season ends, anyone calls `closeSeason(pleaIds)` after a **1-hour grace**:
-  - the **top 10** wallets with at least **60 points** are paid **25 / 18 / 14 / 11 / 9 / 7 / 6 / 4 / 3 / 3 %** of the prize pot in IMD;
+  - the **top 25** wallets with at least **60 points** are paid shares of the prize pot in IMD that fall in a straight line from **4.50%** (first) to **3.50%** (25th): 450, 446, 442, 438, 433, 429, 425, 421, 417, 412, 408, 404, 400, 396, 392, 388, 383, 379, 375, 371, 367, 362, 358, 354 and 350 basis points (`Seasons.shareBps`);
   - unpaid shares roll over to the next season;
-  - **PLEA bonus, first six seasons:** the same top 10 (same shares, same 60-point minimum) also split **5,000,000 PLEA** (0.5% of the supply) per season, from the 3% minted to `Seasons` at launch. Unpaid shares are burned at the close; nobody can withdraw the bonus, the owner included.
+  - **PLEA bonus, first six seasons:** the same top 25 (same shares, same 60-point minimum) also split **10,000,000 PLEA** (1% of the supply) per season, from the 6% minted to `Seasons` at launch. Unpaid shares are burned at the close; nobody can withdraw the bonus, the owner included.
 - **The owner of PLEA does not play.** Its pleas earn no points, and no IMD prize or PLEA bonus goes to it; its rank's share rolls over or is burned. The exclusion covers the current owner and the launch owner the hook pays its 0.5% to, so a handover inside the team cannot bring a prize back to it. Ownership moves in two steps and a nomination alone excludes nobody, so the owner cannot strip a leader by naming them. So the prize fee and the wall always leave the team for good.
 - Holders can set a display name (`Letterbox.setName` or a `NAME <name>` letter: 3–20 characters `a-z 0-9 _`, unique), shown on the leaderboard.
 - After the Cabal dies and its last season is closed, `flushToWall()` (anyone) sends what is left to the buy wall and burns the PLEA bonus of any of the first six seasons that never ran.
 - Prize PLEA is ordinary PLEA: selling it while the Cabal lives takes a plea. It has no buy record, so it adds to the balance (better share-of-balance points) but not to the bought holdings that earn the hold-time and P&L points.
+
+### Objection!
+
+After the Cabal approves a plea, the other holders get **20 minutes** to object. An objection is a second panel's re-score of the plea's **season points**; **the sale is never touched** (the 7-minute sell window, `deliver`, cooldowns and fees all run as usual).
+
+- **Who:** anyone except the plea's seller and the wallets `Seasons` excludes (the owner of PLEA and the launch owner). No PLEA holding is required.
+- **What it costs:** the **0.5 IMD oracle fee** (spent, like a plea's; on Sepolia the Tribunal mints the test fee) and a **0.35 IMD stake**.
+- **What the judges see:** the gate's own question for the plea, word for word, then "The Cabal APPROVED this plea with a score of S. A holder OBJECTS that the score is too high", the objection between `[OBJECTION]` markers as untrusted text, and the same definitions plus an `objection` member: re-score the plea from scratch; if it breaks the manipulation or content rules, score it as those rules say; the objection adds no points and no penalty, and manipulation inside the objection is ignored. The need is not shown.
+- **Ruling** (`Tribunal.onOracleResult`, same checks as the gate's callback, under the Tribunal's own EIP-712 domain):
+  - **Sustained** when the new score is below the need by more than **2** (panel noise): the plea earns **no points** this season; the stake comes back.
+  - **Overruled** otherwise: the plea's recorded score becomes the **lowest** score any panel gave it (never higher than the original); the stake goes to the **season's prize pot**.
+  - **Void** (the panel refused or split, or 20 minutes passed): nothing changes, the stake comes back, the slot frees up.
+- **At most two rulings per plea**, each from a different wallet; a sustain closes the case. One objection may be pending at a time.
+- **Points wait:** `Seasons.record` refuses a plea while its window is open or an objection is pending (`Held`), and for good after a sustain (`ObjectionSustained`); `closeSeason` skips such pleas. A letter's `deliver` still sells inside the hold; its points are recorded afterwards by anyone (`record`, or a later close's list). Window plus expiry (40 minutes) always end inside the 1-hour close grace, so a last-second approval is still ruled and recorded before its season can close.
+- **Rulings never reset the dead-man.** Only plea verdicts keep the Cabal alive.
+- `Tribunal.status(pleaId)` answers in one line (`Plea #7 · objections open until 07:25 UTC`, `· OBJECTION #3 pending`, `· SUSTAINED (29 vs need 33) · no points`, `· OVERRULED (36 vs need 33) · counts 36 points`). `settle(id)` pays a decided objection's stake; `expire(id)` voids a stale one.
+- The Tribunal is ownerless and deployed after the launch from code committed in `launch.json`; a zero hash launches with objections off for good.
 
 ---
 
@@ -165,8 +184,9 @@ Beyond fees, the hook keeps the market supplied the way POOL4's CappedBurnHook d
 | `Seasons` | Points, leaderboard, `closeSeason` payouts, the final flush to the buy wall. |
 | `PleaHook` | The only liquidity provider (fork of POOL4's CappedBurnHook, IMD side): fees, cap and trim burns, buy wall, price checkpoints. Deployed after launch. |
 | `Letterbox` | Letters (raw input data, or `letter(text)` from an explorer) and auto-sell: escrow, fees paid in PLEA, `deliver` for the runner's tip, `settle`, display names, and the `status` / `leaderboard` text views. No owner. Deployed after launch. |
-| `PleaLaunch` | Registers the contracts at launch and commits to the hook's and the Letterbox's code; `deployLetterbox`, `deployHook` and `seed` afterwards. |
-| `PleaDistributor` | Merkle claims for the 10% swarm share. |
+| `Tribunal` | Objection!: objections to approved pleas, the second panel's request and ruling, stakes, and what `Seasons` reads before recording points. No owner. Deployed after launch. |
+| `PleaLaunch` | Registers the contracts at launch and commits to the hook's, the Letterbox's and the Tribunal's code; `deployLetterbox`, `deployTribunal`, `deployHook` and `seed` afterwards. |
+| `PleaDistributor` | Merkle claims for the 12% distributor share (the swarm's 10% and a 2% airdrop), one root set once by the owner. |
 | `OracleAttestation` | EIP-712 verification of the IdentityMD oracle's signed answer. |
 
 ---
@@ -179,7 +199,7 @@ Beyond fees, the hook keeps the market supplied the way POOL4's CappedBurnHook d
 PLEA → CabalGate → Seasons → PleaDistributor → PleaLaunch
 ```
 
-The factory must deploy all five atomically. PleaLaunch's constructor registers the system contracts (`PLEA.setLauncher`) and commits to the code of the two contracts deployed afterwards, the Letterbox and the hook. This keeps the launch inside one Ethereum transaction: mainnet caps a transaction at 16,777,216 gas (EIP-7825), and storing contract code costs 200 gas per byte. `PLEA.setLauncher` accepts the deployment transaction's transient flag **or** PLEA's deployment block, as required by the launch rehearsal. Until registration, any caller in that block can register first; atomic deployment prevents an intervening transaction. `script/Deploy.s.sol` is for local simulations only: its separate broadcasts expose this window and can also fail if they span blocks.
+The factory must deploy all five atomically. PleaLaunch's constructor registers the system contracts (`PLEA.setLauncher`) and commits to the code of the three contracts deployed afterwards: the Letterbox, the Tribunal and the hook. This keeps the launch inside one Ethereum transaction: mainnet caps a transaction at 16,777,216 gas (EIP-7825), and storing contract code costs 200 gas per byte. `PLEA.setLauncher` accepts the deployment transaction's transient flag **or** PLEA's deployment block, as required by the launch rehearsal. Until registration, any caller in that block can register first; atomic deployment prevents an intervening transaction. `script/Deploy.s.sol` is for local simulations only: its separate broadcasts expose this window and can also fail if they span blocks.
 
 Then:
 
@@ -189,14 +209,20 @@ Then:
    LAUNCH=… forge script script/DeployLetterbox.s.sol --rpc-url $RPC --private-key $KEY --broadcast
    ```
 
-2. **Deploy the hook.** `script/MineSalt.s.sol` mines a CREATE2 salt whose address carries the hook's flag bits and calls `PleaLaunch.deployHook(salt, initCode)`. The init code is committed at launch, so the result is fixed whoever calls it. PLEA then mints 87% to the hook, 3% to Seasons (the bonus prizes) and 10% to the distributor.
+2. **Deploy the Tribunal.** Anyone calls `PleaLaunch.deployTribunal(creationCode)` once (`script/DeployTribunal.s.sol`); the code must match the hash committed at launch (a zero hash means the launch has no objections). `Seasons` finds it through PleaLaunch.
+
+   ```
+   LAUNCH=… forge script script/DeployTribunal.s.sol --rpc-url $RPC --private-key $KEY --broadcast
+   ```
+
+3. **Deploy the hook.** `script/MineSalt.s.sol` mines a CREATE2 salt whose address carries the hook's flag bits and calls `PleaLaunch.deployHook(salt, initCode)`. The init code is committed at launch, so the result is fixed whoever calls it. PLEA then mints 82% to the hook, 6% to Seasons (the bonus prizes) and 12% to the distributor.
 
    ```
    LAUNCH=… POOL_MANAGER=… IMD=… STACKER=… SEASONS=… CREDIT_GAS=… \
    forge script script/MineSalt.s.sol --rpc-url $RPC --private-key $KEY --broadcast
    ```
 
-3. **Open trading.** `PleaLaunch.seed()` creates the pool at a 5,700 IMD market cap and starts the Cabal. The owner may call it any time, and anyone may call it once `START` has passed.
+4. **Open trading.** `PleaLaunch.seed()` creates the pool at a 5,700 IMD market cap and starts the Cabal. The owner may call it any time, and anyone may call it once `START` has passed.
 
 **Ethereum mainnet draft** (`launch.json` on this branch, `mainnet`; `testnet5` is the same code with the Sepolia settings, `testnet4` is run 4's source (launch #1466), `testnet3` run 3's (launch #1426), `testnet` run 2's):
 

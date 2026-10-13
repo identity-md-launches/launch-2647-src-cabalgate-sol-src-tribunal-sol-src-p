@@ -91,9 +91,9 @@ contract DistributorAdversarialTest is DistributionFixture {
             vm.expectRevert(PleaDistributor.AlreadyClaimed.selector);
             claim(i);
         }
-        assertEq(token.balanceOf(address(drop)), 100_000_000e18 - paid);
-        assertEq(token.balanceOf(treasury), 870_000_000e18);
-        assertEq(token.balanceOf(address(seasons)), 30_000_000e18);
+        assertEq(token.balanceOf(address(drop)), 120_000_000e18 - paid);
+        assertEq(token.balanceOf(treasury), 820_000_000e18);
+        assertEq(token.balanceOf(address(seasons)), 60_000_000e18);
         assertEq(token.totalSupply(), 1_000_000_000e18);
     }
 
@@ -111,7 +111,7 @@ contract DistributorAdversarialTest is DistributionFixture {
         if (field == 3) path[salt % 3] ^= bytes32(uint256(1));
         vm.expectRevert(PleaDistributor.InvalidProof.selector);
         drop.claim(index, recipient, amount, path);
-        assertEq(token.balanceOf(address(drop)), 100_000_000e18);
+        assertEq(token.balanceOf(address(drop)), 120_000_000e18);
         assertFalse(drop.isClaimed(index));
         claim(position); // failed validation left the correct claim usable
         assertEq(token.balanceOf(actors[position % 4]), ClaimTree.amount(position));
@@ -119,12 +119,12 @@ contract DistributorAdversarialTest is DistributionFixture {
 
     function test_failedTokenTransferRollsBackBitmapAndCanBeRetried() public {
         // A valid commitment can exceed current funding; a failed payout must remain claimable.
-        uint256 amount = 100_000_000e18 + 1;
+        uint256 amount = 120_000_000e18 + 1;
         drop.setMerkleRoot(keccak256(abi.encodePacked(uint256(255), actors[0], amount)));
         bytes32[] memory empty = new bytes32[](0);
         vm.expectRevert(
             abi.encodeWithSelector(
-                IERC20Errors.ERC20InsufficientBalance.selector, address(drop), 100_000_000e18, amount
+                IERC20Errors.ERC20InsufficientBalance.selector, address(drop), 120_000_000e18, amount
             )
         );
         drop.claim(255, actors[0], amount, empty);
@@ -139,19 +139,19 @@ contract DistributorAdversarialTest is DistributionFixture {
     }
 
     function test_fullAllocationAndZeroAmountLeavesDoNotCorruptAdjacentBits() public {
-        bytes32 full = keccak256(abi.encodePacked(uint256(256), actors[0], uint256(100_000_000e18)));
+        bytes32 full = keccak256(abi.encodePacked(uint256(256), actors[0], uint256(120_000_000e18)));
         bytes32 zero = keccak256(abi.encodePacked(uint256(255), actors[1], uint256(0)));
         drop.setMerkleRoot(ClaimTree.pair(full, zero));
         bytes32[] memory path = new bytes32[](1);
         path[0] = zero;
-        drop.claim(256, actors[0], 100_000_000e18, path);
+        drop.claim(256, actors[0], 120_000_000e18, path);
         assertFalse(drop.isClaimed(255));
         path[0] = full;
         drop.claim(255, actors[1], 0, path);
         assertTrue(drop.isClaimed(255));
         assertTrue(drop.isClaimed(256));
         assertEq(token.balanceOf(address(drop)), 0);
-        assertEq(token.balanceOf(actors[0]), 100_000_000e18);
+        assertEq(token.balanceOf(actors[0]), 120_000_000e18);
     }
 }
 
@@ -307,7 +307,7 @@ contract DistributionInvariantTest is DistributionFixture {
 
     function invariant_distributorPaysEachCommittedLeafAtMostOnce() public view {
         assertEq(drop.merkleRoot(), root);
-        assertEq(token.balanceOf(address(drop)) + handler.paid(), 100_000_000e18 + handler.donated());
+        assertEq(token.balanceOf(address(drop)) + handler.paid(), 120_000_000e18 + handler.donated());
         uint256 expectedPaid;
         for (uint256 i; i < 8; ++i) {
             assertEq(drop.isClaimed(ClaimTree.index(i)), handler.claimed(i));

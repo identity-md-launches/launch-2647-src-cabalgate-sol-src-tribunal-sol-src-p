@@ -73,6 +73,6 @@ contract TokenTest is Fixture {
         assertEq(p.totalSupply(), 0);
         assertLe(plea.totalSupply(), 1_000_000_000e18 - hook.totalBurned());
         assertGt(plea.totalSupply(), 999_000_000e18);
-        assertEq(plea.balanceOf(address(distributor)), 100_000_000e18);
+        assertEq(plea.balanceOf(address(distributor)), 120_000_000e18);
     }
 }

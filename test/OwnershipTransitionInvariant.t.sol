@@ -91,12 +91,12 @@ contract OwnershipTransitionHandler is Test {
         // Only the accepted owner is excluded (the launch owner too, but this stand-in hook has no
         // owner). A nomination cannot revoke either fixed rank.
         if (expectedOwner != actors[1]) {
-            quotePaid[1] = 25e18;
-            bonusPaid[1] = 1_250_000e18;
+            quotePaid[1] = 4.5e18;
+            bonusPaid[1] = 450_000e18;
         }
         if (expectedOwner != actors[2]) {
-            quotePaid[2] = 18e18;
-            bonusPaid[2] = 900_000e18;
+            quotePaid[2] = 4.46e18;
+            bonusPaid[2] = 446_000e18;
         }
         seasons.closeSeason(new uint256[](0));
         closed = true;
@@ -176,10 +176,10 @@ contract OwnershipTransitionInvariantTest is Test {
             bonusPaid += handler.bonusPaid(i);
         }
         assertEq(quote.balanceOf(address(seasons)) + quotePaid, 100e18);
-        assertEq(token.balanceOf(address(seasons)) + bonusPaid + seasons.bonusBurned(), 30_000_000e18);
+        assertEq(token.balanceOf(address(seasons)) + bonusPaid + seasons.bonusBurned(), 60_000_000e18);
         assertEq(token.totalSupply() + seasons.bonusBurned(), 1_000_000_000e18);
-        assertEq(token.balanceOf(address(wall)), 870_000_000e18);
-        assertEq(token.balanceOf(address(drop)), 100_000_000e18);
+        assertEq(token.balanceOf(address(wall)), 820_000_000e18);
+        assertEq(token.balanceOf(address(drop)), 120_000_000e18);
         assertEq(seasons.closed(0), handler.closed());
         assertEq(seasons.nextToClose(), handler.closed() ? 1 : 0);
     }
@@ -195,9 +195,9 @@ contract OwnershipTransitionInvariantTest is Test {
         handler.closePrizes();
         assertEq(handler.acceptedTransfers(), 1);
         assertEq(handler.rejectedActions(), 3);
-        assertEq(quote.balanceOf(actors[1]), 25e18);
+        assertEq(quote.balanceOf(actors[1]), 4.5e18);
         assertEq(quote.balanceOf(actors[2]), 0);
-        assertEq(seasons.rollover(), 75e18, "owner's rank is not reassigned");
+        assertEq(seasons.rollover(), 95.5e18, "owner's rank is not reassigned");
         invariant_onlyAcceptedTransfersChangeOwnerOrAllowlistAuthority();
         invariant_ownershipChangesCannotMoveOrDuplicateCustodiedPrizes();
     }
@@ -209,8 +209,8 @@ contract OwnershipTransitionInvariantTest is Test {
         handler.closePrizes();
         assertEq(token.owner(), actors[0]);
         assertEq(token.pendingOwner(), address(0));
-        assertEq(quote.balanceOf(actors[1]), 25e18);
-        assertEq(quote.balanceOf(actors[2]), 18e18);
+        assertEq(quote.balanceOf(actors[1]), 4.5e18);
+        assertEq(quote.balanceOf(actors[2]), 4.46e18);
         invariant_ownershipChangesCannotMoveOrDuplicateCustodiedPrizes();
     }
 
