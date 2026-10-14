@@ -230,6 +230,13 @@ contract AtomicManifestTest is ManifestFixture {
         assertEq(committed, letterboxHash);
     }
 
+    /// The manifest schema caps `notes` at 4,000 characters and refuses the whole file otherwise
+    /// (run 5's import audit: 4,753 would have parked the launch at the manifest step).
+    function test_launchJsonNotesFitTheManifestCap() public view {
+        string memory json = vm.readFile("launch.json");
+        assertLe(bytes(vm.parseJsonString(json, ".notes")).length, 4000, "launch.json notes over 4,000 characters");
+    }
+
     /// launch.json commits to this build's Tribunal too (its 13th PleaLaunch argument).
     function test_launchJsonCommitsToThisTribunal() public view {
         string memory json = vm.readFile("launch.json");
