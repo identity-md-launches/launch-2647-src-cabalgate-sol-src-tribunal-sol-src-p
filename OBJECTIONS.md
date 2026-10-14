@@ -164,7 +164,7 @@ A plea's case is **closed** when `objections[caseOf[pleaId]].ruling` is `Sustain
 | `onOracleResult(intakeId, a, signature)` | the Intake | The same checks as the gate's callback: caller is the Intake, known request, `Pending`, within `PENDING_EXPIRY`, attestation verified and consumed, `chainId == 1`, `panelSize ≥ 30`, `quorum ≥ 17`, `agreed ≥ 17` and `≥ quorum`, score ≤ 45. Stores `newScore` and `Sustained` or `Overruled`. **Stores only: no transfers** (200k callback gas). It does not require `cabalAlive()`. |
 | `onObjectionFailure(intakeId, status, reason, agreed, answered, signature)` | the Intake | Same as the gate's `onPleaFailure`: only a pending objection is moved to `Void`; no value moves. |
 | `expire(id)` | anyone | A pending objection past `PENDING_EXPIRY`, or whose Intake request completed without an answer, becomes `Void`. |
-| `settle(id)` | anyone | Pays a decided objection's stake once: `Sustained` → objector; `Overruled` or `Void` → `Seasons` (transfer, then `seasons.checkpoint()`, as the Letterbox's auto-sell fee does). |
+| `settle(id)` | anyone | Pays a decided objection's stake once: `Sustained` or `Void` → objector; `Overruled` → `Seasons` (transfer, then `seasons.checkpoint()`, as the Letterbox's auto-sell fee does). |
 | `standing(pleaId) → (bool held, bool sustained)` | view | What `Seasons` reads (below). |
 | `question(id)`, `body(id)` | view | The judges' question and the JSON body. |
 | `status(pleaId) → string` | view | One line for explorers: `Plea #7 · objections open until 07:25 UTC`, `· OBJECTION pending`, `· SUSTAINED (29 vs need 33) · no points`, `· OVERRULED (36 vs need 33)`. |
