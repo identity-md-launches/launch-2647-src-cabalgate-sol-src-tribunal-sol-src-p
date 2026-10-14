@@ -379,7 +379,8 @@ contract TribunalTest is Fixture {
         }
         string memory o = vm.parseJsonString(body, ".definitions.objection");
         assertLe(bytes(o).length, 512, "definitions values are limited to 512 characters");
-        assertTrue(_contains(o, "adds no points and no penalty"));
+        assertTrue(_contains(o, "adds no points or penalty"));
+        assertTrue(_contains(o, "are unverified and carry no weight"), "definition v2: claims outside the request");
         assertTrue(_contains(gate.body(id), _definitionsCopy(body)), "the copy must track CabalGate.DEFINITIONS");
     }
 
