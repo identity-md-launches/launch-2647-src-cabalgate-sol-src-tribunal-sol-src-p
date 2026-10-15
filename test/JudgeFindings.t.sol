@@ -41,12 +41,12 @@ contract JudgeFindingsTest is Fixture {
         vm.warp((t / 1 hours + 1) * 1 hours + 60);
     }
 
-    /// Every whale sells min(15% of its balance, 2.5M PLEA) through an approved plea, all in one hour
-    /// (run 7: a week-old whale at any gain can plead 15%; a larger share needs a loss or an up trend).
+    /// Every whale sells min(20% of its balance, 2.5M PLEA) through an approved plea, all in one hour
+    /// (a week-old whale at any gain can plead 20%; a larger share needs a loss or an up trend).
     function _crash() internal {
         for (uint256 i; i < N; ++i) {
             address w = whales[i];
-            uint256 amt = plea.balanceOf(w) * 15 / 100;
+            uint256 amt = plea.balanceOf(w) * 20 / 100;
             if (amt > 2_500_000e18) amt = 2_500_000e18;
             uint256 id = plead(w, amt);
             require(answer(id, 45), "verdict");
@@ -123,7 +123,7 @@ contract JudgeFindingsTest is Fixture {
         CabalGate.Plea memory a = gate.getPlea(ap);
         assertEq(a.need, need, "the appeal is judged against the same need as the plea");
         assertLt(a.amount, p.amount, "a slightly smaller amount keeps the share band");
-        assertLe(a.amount * 10_000 / gate.pleaBalance(ap), 1_500, "still in the 15% band");
+        assertLe(a.amount * 10_000 / gate.pleaBalance(ap), 2_000, "still in the 20% band");
     }
 
     /// Run-4 import audit: a site plea at exactly the gate's 1% minimum, denied, settled, then appealed
@@ -200,8 +200,8 @@ contract JudgeFindingsTest is Fixture {
         vm.prank(dave);
         vm.expectRevert(CabalGate.AmountTooLarge.selector);
         gate.submitSell(bal / 2 + 1, "too much");
-        assertEq(gate.factScore(dave, bal * 1500 / 10_000) - gate.factScore(dave, bal * 1501 / 10_000 + 1), 7);
-        assertEq(gate.factScore(dave, bal * 3000 / 10_000) - gate.factScore(dave, bal * 3001 / 10_000 + 1), 6);
+        assertEq(gate.factScore(dave, bal * 2000 / 10_000) - gate.factScore(dave, bal * 2001 / 10_000 + 1), 7);
+        assertEq(gate.factScore(dave, bal * 3500 / 10_000) - gate.factScore(dave, bal * 3501 / 10_000 + 1), 6);
         vm.prank(dave);
         uint256 id = gate.submitSell(bal / 2, "exactly half");
         assertEq(gate.getPlea(id).amount, bal / 2);

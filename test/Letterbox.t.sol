@@ -103,9 +103,9 @@ contract LetterboxTest is Fixture {
 
     // ---------------------------------------------------------------- pleading by letter
 
-    function test_letterPleadsFifteenPercentPaysFeesInPleaAndEscrows() public {
+    function test_letterPleadsTwentyPercentPaysFeesInPleaAndEscrows() public {
         uint256 bal = plea.balanceOf(alice);
-        uint8 fact = gate.factScore(alice, bal * 15 / 100);
+        uint8 fact = gate.factScore(alice, bal * 20 / 100);
         uint256 intakeBefore = oimd.balanceOf(intake.PAY_TO());
         (uint256 feeImd, uint256 maxFeePlea) = letterbox.feesFor(false);
         assertEq(feeImd, TIP, "Sepolia: the oracle fee is minted, only the tip is bought");
@@ -115,15 +115,15 @@ contract LetterboxTest is Fixture {
 
         CabalGate.Plea memory p = gate.getPlea(id);
         assertEq(p.seller, alice);
-        assertEq(p.amount, bal * 15 / 100, "fixed 15%");
+        assertEq(p.amount, bal * 20 / 100, "fixed 20%");
         assertEq(p.factScore, fact, "scored on the balance before anything moved");
         assertEq(p.flags, 3, "by letter, auto-sell");
         (address w, bool open, uint256 amount) = escrowed(id);
         assertEq(w, alice);
         assertTrue(open);
-        assertEq(amount, bal * 15 / 100);
-        assertEq(plea.balanceOf(address(letterbox)), bal * 15 / 100, "only the escrow stays");
-        uint256 feePlea = bal - bal * 15 / 100 - plea.balanceOf(alice);
+        assertEq(amount, bal * 20 / 100);
+        assertEq(plea.balanceOf(address(letterbox)), bal * 20 / 100, "only the escrow stays");
+        uint256 feePlea = bal - bal * 20 / 100 - plea.balanceOf(alice);
         assertGt(feePlea, 0);
         assertLe(feePlea, maxFeePlea, "fee swap within snapshot value + 10%");
         assertEq(imd.balanceOf(address(letterbox)), TIP, "the tip waits for the runner");
@@ -133,7 +133,7 @@ contract LetterboxTest is Fixture {
         // The fee swap is a sale by alice: it reduces her buy record; the escrow does not.
         (, uint256 heldAfter,) = hook.basisOf(alice);
         assertLt(heldAfter, held);
-        assertGt(heldAfter, held - bal * 15 / 100, "the escrowed fifth still counts as held");
+        assertGt(heldAfter, held - bal * 20 / 100, "the escrowed fifth still counts as held");
     }
 
     function test_explorerLetterIsTheSameAsARawLetter() public {
@@ -142,7 +142,7 @@ contract LetterboxTest is Fixture {
         uint256 raw = letter(alice, bytes(text));
         // Read after alice's letter: her fee sale moved the price, which is part of the fact score.
         uint256 balB = plea.balanceOf(bob);
-        uint8 factB = gate.factScore(bob, balB * 15 / 100);
+        uint8 factB = gate.factScore(bob, balB * 20 / 100);
         vm.prank(bob);
         letterbox.letter(text);
         uint256 typed = gate.lastPleaOf(bob);
@@ -150,13 +150,13 @@ contract LetterboxTest is Fixture {
         CabalGate.Plea memory t = gate.getPlea(typed);
         assertEq(t.seller, bob);
         assertEq(t.text, r.text);
-        assertEq(t.amount, balB * 15 / 100, "fixed 15%");
+        assertEq(t.amount, balB * 20 / 100, "fixed 20%");
         assertEq(t.factScore, factB, "scored on the balance before anything moved");
         assertEq(t.flags, r.flags, "by letter, auto-sell");
         (address w, bool open, uint256 amount) = escrowed(typed);
         assertEq(w, bob);
         assertTrue(open);
-        assertEq(amount, balB * 15 / 100);
+        assertEq(amount, balB * 20 / 100);
         assertEq(imd.balanceOf(address(letterbox)), 2 * TIP);
 
         // APPEAL, SELL and NAME typed into `letter` work like the raw commands.
@@ -168,7 +168,7 @@ contract LetterboxTest is Fixture {
         assertEq(gate.getPlea(a).originalId, typed);
         // The same share of the balance as the original (slightly less PLEA: the fee sale shrank it).
         assertLe(gate.getPlea(a).amount, t.amount);
-        assertLe(gate.getPlea(a).amount * 10_000 / gate.pleaBalance(a), 1_500, "still the 15% share band");
+        assertLe(gate.getPlea(a).amount * 10_000 / gate.pleaBalance(a), 2_000, "still the 20% share band");
         assertEq(gate.getPlea(a).text, "Plainly: the laptop is how I work, and I keep the rest.");
         answer(a, 45);
         uint256 imdBefore = imd.balanceOf(bob);
@@ -414,12 +414,12 @@ contract LetterboxTest is Fixture {
     function test_anAppealOfAFloorSizedLetterIsNotRefused() public {
         address w = makeAddr("floorWriter");
         fund(w);
-        buy(w, 4.85e18);
+        buy(w, 3.64e18);
         buy(bob, 1e18); // the hour's checkpoint
         uint256 price = hook.latestPrice();
-        uint256 value15 = (plea.balanceOf(w) * 15 / 100) * price / (1 << 96);
-        assertGe(value15, 0.7e18, "setup: the letter must clear the floor");
-        assertLt(value15, 0.76e18, "setup: the letter must sit in the floor band");
+        uint256 value20 = (plea.balanceOf(w) * 20 / 100) * price / (1 << 96);
+        assertGe(value20, 0.7e18, "setup: the letter must clear the floor");
+        assertLt(value20, 0.76e18, "setup: the letter must sit in the floor band");
         uint256 id = letter(w, "A fifth for the electrician; the rest stays until the lights go out.");
         uint256 original = gate.getPlea(id).amount;
         answer(id, 0);
@@ -428,8 +428,8 @@ contract LetterboxTest is Fixture {
         assertLe(amount, original, "never above the original");
         assertGe(amount * price / (1 << 96) + 1, 0.7e18, "raised back to the floor's worth");
         assertTrue(gate.getPlea(a).isAppeal);
-        // The raise lands above 15% of the shrunken balance; the band stays the original's.
-        assertGt(amount * 10_000 / plea.balanceOf(w), 1_500, "setup: the raise crosses the band");
+        // The raise lands above 20% of the shrunken balance; the band stays the original's.
+        assertGt(amount * 10_000 / plea.balanceOf(w), 2_000, "setup: the raise crosses the band");
         assertEq(gate.getPlea(a).need, gate.getPlea(id).need, "a floor raise keeps the original's share band");
         // appealAuto takes the same path.
         answer(a, 0);
@@ -506,7 +506,7 @@ contract LetterboxTest is Fixture {
         assertEq(p.originalId, id);
         assertLe(p.amount, amount, "at most the original amount: the original's share of the shrunk balance");
         assertGt(p.amount * 1000, amount * 990, "within 1% of it");
-        assertLe(p.amount * 10_000 / gate.pleaBalance(a), 1_500, "still the 15% share band");
+        assertLe(p.amount * 10_000 / gate.pleaBalance(a), 2_000, "still the 20% share band");
         assertEq(p.text, "I was too brief: the books cost 40 IMD and I keep the rest.");
         assertEq(hook.retainedImd() - wall, 0.35e18, "the wall share");
         assertEq(imd.balanceOf(address(letterbox)), TIP);
@@ -859,7 +859,7 @@ contract LetterboxMainnetPathTest is Fixture {
         uint256 id = gate.lastPleaOf(alice);
         assertEq(imd.balanceOf(intake.PAY_TO()) - intakeBefore, 0.5e18, "the Intake was paid in IMD");
         assertEq(imd.balanceOf(address(letterbox)), 0.25e18, "only the tip stays");
-        uint256 feePlea = bal - bal * 15 / 100 - plea.balanceOf(alice);
+        uint256 feePlea = bal - bal * 20 / 100 - plea.balanceOf(alice);
         assertLe(feePlea, maxFeePlea);
         (feeImd,) = letterbox.feesFor(true);
         assertEq(feeImd, 0.5e18 + 0.35e18 + 0.25e18, "an appeal also buys the wall share");

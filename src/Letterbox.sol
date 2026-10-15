@@ -51,7 +51,7 @@ interface IMintable {
 /// as a wallet's data field or an explorer's message (IDM) page sends it, or the same text passed
 /// to `letter(text)` from an explorer's Write Contract tab. The writer is always the sender. The
 /// first word decides what it does:
-///   any other text   a new plea for 15% of the writer's PLEA, sold automatically if approved;
+///   any other text   a new plea for 20% of the writer's PLEA, sold automatically if approved;
 ///   `APPEAL <text>`  an appeal of the writer's latest denied plea, for its original amount (an
 ///                    appeal the oracle never answered may be sent again);
 ///   `SELL`           the writer sells their own approved letter plea (if no runner did yet);
@@ -59,7 +59,8 @@ interface IMintable {
 /// Fees are paid in PLEA in the letter's own transaction: the gate sells just enough of the writer's
 /// PLEA (at most the hourly snapshot value + 10%) for the oracle fee, a 0.25 IMD runner tip and, for
 /// an appeal, the wall share. The plea's PLEA waits here in escrow. An approved plea is sold by
-/// anyone through `deliver` (for at least 95% of its snapshot value), who earns the tip, and the
+/// anyone through `deliver` (for at least 95% of its snapshot value after the hook's 2% sale fees),
+/// who earns the tip, and the
 /// whole sale goes to the writer: a letter pays no auto-sell fee (0.5 IMD oracle fee + 0.25 IMD
 /// tip, and the tip comes back to a writer who sends `SELL`).
 /// The site's "sell automatically" box (`plead` / `appealAuto`) has the same escrow and tip, and
@@ -105,8 +106,9 @@ contract Letterbox is ReentrancyGuardTransient {
     }
 
     // ---------------------------------------------------------------- agreed numbers
-    /// @dev A letter pleads 15% of the writer's PLEA (within the gate's 2.5M cap).
-    uint256 internal constant LETTER_SHARE_BPS = 1_500;
+    /// @dev A letter pleads 20% of the writer's PLEA (within the gate's 2.5M cap), the edge of the
+    /// gate's best share band.
+    uint256 internal constant LETTER_SHARE_BPS = 2_000;
     /// @dev A letter below this amount is refused (the fees would dwarf it).
     uint256 internal constant MIN_LETTER = 1_000e18;
     /// @dev Paid to whoever delivers an approved plea; refunded when no sale happens.
@@ -120,8 +122,12 @@ contract Letterbox is ReentrancyGuardTransient {
     uint256 internal constant MIN_SALE_VALUE = 0.7e18;
     /// @dev CabalGate's text limit, repeated so an over-long letter is refused with a clear error.
     uint256 internal constant MAX_PLEA_BYTES = 280;
-    /// @dev Auto-sell minimum: 95% of the PLEA's value at the hook's hourly snapshot.
+    /// @dev Auto-sell minimum: 95% of the PLEA's value at the hook's hourly snapshot, after the hook's
+    /// sale fees (`HOOK_SALE_FEE_BPS`), so the 5% is the room for a price dip and the sale's impact.
     uint256 internal constant MIN_OUT_BPS = 9_500;
+    /// @dev The hook's fees on a sale: 0.25% of the PLEA burned and 1.75% of the IMD out (PleaHook
+    /// `PLEA_BURN_BPS` + `IMD_FEE_BPS`), which the gate's net output already excludes (round 7, R7-M-1).
+    uint256 internal constant HOOK_SALE_FEE_BPS = 200;
     /// @dev The fee swap may spend at most the snapshot value of the IMD it buys, plus 10%.
     uint256 internal constant FEE_CAP_BPS = 11_000;
     /// @dev The fees may take at most 10% of the writer's PLEA.
@@ -265,7 +271,7 @@ contract Letterbox is ReentrancyGuardTransient {
     // ================================================================ runners
 
     /// @notice Anyone sells an approved plea inside its 7-minute window, for at least 95% of its
-    /// snapshot value: the sale goes to the writer (less the 0.35 IMD auto-sell fee to the season's
+    /// snapshot value after the hook's 2% sale fees: the sale goes to the writer (less the 0.35 IMD auto-sell fee to the season's
     /// prize pot when the plea came from the site's auto-sell box, never from a letter), the points
     /// are recorded, and the caller earns the 0.25 IMD tip.
     /// @return out The IMD paid to the writer.
@@ -315,7 +321,7 @@ contract Letterbox is ReentrancyGuardTransient {
         uint256 bal = plea.balanceOf(writer);
         // The original amount, or the gate's 50% of the balance when the fee sales left less.
         if (amount > bal * MAX_SHARE_BPS / BPS) amount = bal * MAX_SHARE_BPS / BPS;
-        // Keep the original plea's share, subject to the gate's minimum: the fee sale of a 15% letter
+        // Keep the original plea's share, subject to the gate's minimum: the fee sale of a 20% letter
         // shrinks the balance, and the same amount would otherwise fall into the next share band
         // (16 -> 9 points, need +7). The gate allows a smaller appeal amount.
         uint256 origBal = gate.pleaBalance(originalId);
@@ -393,7 +399,8 @@ contract Letterbox is ReentrancyGuardTransient {
         if (!e.open) revert NotOpen(id);
         address writer = e.writer;
         uint256 amount = e.amount;
-        uint256 minOut = FullMath.mulDiv(amount, _price(), FixedPoint96.Q96) * MIN_OUT_BPS / BPS;
+        uint256 minOut =
+            FullMath.mulDiv(amount, _price(), FixedPoint96.Q96) * MIN_OUT_BPS / BPS * (BPS - HOOK_SALE_FEE_BPS) / BPS;
         IERC20(address(plea)).forceApprove(address(gate), amount);
         _close(id, e);
         // The gate pays the sale's IMD here. A letter's sale goes whole to the writer; the site's
@@ -415,7 +422,7 @@ contract Letterbox is ReentrancyGuardTransient {
         emit Delivered(id, runner, out, TIP, fee);
     }
 
-    /// @dev A plea must be worth at least 0.70 IMD at the snapshot (the sale pays at least 95% of
+    /// @dev A plea must be worth at least 0.70 IMD at the snapshot (the sale pays at least 93.1% of
     /// that), so the auto-sell fee can never eat a sale; letters keep the same floor.
     function _requireWorthTheFee(uint256 amount) internal view {
         uint256 value = FullMath.mulDiv(amount, _price(), FixedPoint96.Q96);

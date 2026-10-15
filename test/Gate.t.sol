@@ -404,6 +404,6 @@ contract GateTest is Fixture {
         assertGe(withPrize, before, "a prize never lowers the score for bought tokens");
         assertEq(withPrize - before, 7, "share of balance 30% -> 7.5%: 9 -> 16 points");
         uint8 beyond = gate.factScore(alice, tracked + 1);
-        assertLt(beyond, withPrize, "selling more than was bought drops hold-time and P&L points");
+        assertLt(beyond, withPrize, "selling more than was bought is scored as received PLEA");
     }
 }

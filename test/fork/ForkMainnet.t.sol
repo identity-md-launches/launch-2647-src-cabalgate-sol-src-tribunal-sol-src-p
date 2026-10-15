@@ -311,7 +311,7 @@ contract ForkMainnetTest is Test {
             _letter(a, "I bought at the launch and held a day; one tenth pays for my bike repair, the rest stays.");
         console2.log("gas: letter", gasLetter);
         CabalGate.Plea memory p = gate.getPlea(id);
-        assertEq(p.amount, bal * 15 / 100 > 2_500_000e18 ? 2_500_000e18 : bal * 15 / 100, "15%, within the 2.5M cap");
+        assertEq(p.amount, bal * 20 / 100 > 2_500_000e18 ? 2_500_000e18 : bal * 20 / 100, "20%, within the 2.5M cap");
         assertEq(p.flags, 3);
         assertEq(_intakeImd() - paid, 0.5e18, "the real Intake was paid 0.5 IMD");
         assertEq(IMD.balanceOf(address(letterbox)), TIP, "the tip waits");

@@ -189,11 +189,12 @@ contract Tribunal is OracleAttestationConsumer, ReentrancyGuardTransient {
         Case storage c = cases[pleaId];
         lowest = c.count == 0 ? NO_SCORE : c.lowest;
         if (c.sustained) return (false, true, lowest);
-        if (c.pendingId != 0 && !_stale(objections[c.pendingId])) return (true, false, lowest);
         (address seller,, bool approved, uint64 verdictAt) = gate.result(pleaId);
-        // An excluded seller's plea earns no points and nobody may object to it: never held.
-        held = approved && !seasons.excluded(seller) && c.count < MAX_OBJECTIONS
-            && block.timestamp <= uint256(verdictAt) + OBJECTION_WINDOW;
+        // An excluded seller's plea earns no points and nobody may object to it: never held, even
+        // while an objection filed before the exclusion (a PLEA handover) is still pending (R7-T-1).
+        if (seasons.excluded(seller)) return (false, false, lowest);
+        if (c.pendingId != 0 && !_stale(objections[c.pendingId])) return (true, false, lowest);
+        held = approved && c.count < MAX_OBJECTIONS && block.timestamp <= uint256(verdictAt) + OBJECTION_WINDOW;
     }
 
     /// @notice One line for explorers.

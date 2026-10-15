@@ -404,6 +404,44 @@ contract AuditRound1Test is Fixture {
         assertEq(bytes4(details), Hooks.HookCallFailed.selector);
         return bytes4(reason);
     }
+
+    /// R7-M-1: the delivery floor is 95% of the snapshot value after the hook's 2% sale fees, so an
+    /// approved letter still sells when spot sits 4% under the hour's snapshot (the old gross floor
+    /// refused anything past ~2.8%), and is still refused at 6%.
+    function test_aLetterStillSellsAfterAFourPercentDip() public {
+        buy(alice, 50e18);
+        skip(2 hours);
+        uint256 id = _letter(alice, "Twenty percent for the phone bill; the rest stays with me.");
+        assertTrue(answer(id, 45), "verdict");
+        uint256 p = hook.latestPrice();
+        uint256 snap = vm.snapshotState();
+        vm.mockCall(address(hook), abi.encodeWithSelector(PleaHook.latestPrice.selector), abi.encode(p * 106 / 100));
+        vm.expectRevert();
+        letterbox.deliver(id);
+        vm.revertToState(snap);
+        vm.mockCall(address(hook), abi.encodeWithSelector(PleaHook.latestPrice.selector), abi.encode(p * 104 / 100));
+        uint256 out = letterbox.deliver(id);
+        assertGt(out, 0, "sold");
+    }
+
+    /// R7-T-1: a seller who becomes excluded (accepts PLEA's ownership) while an objection to their
+    /// approved plea is pending is never read as held.
+    function test_aSellerExcludedWhileAnObjectionIsPendingIsNeverHeld() public {
+        buy(alice, 50e18);
+        skip(1 days);
+        uint256 id = approvedPlea(alice, 45);
+        address objector = makeAddr("objector");
+        fund(objector);
+        objectTo(objector, id, "That plea is boilerplate: the same three lines as every other sell this week.");
+        (bool held,,) = tribunal.standing(id);
+        assertTrue(held, "a pending objection holds the plea");
+        vm.prank(OWNER);
+        plea.transferOwnership(alice);
+        vm.prank(alice);
+        plea.acceptOwnership();
+        (held,,) = tribunal.standing(id);
+        assertFalse(held, "an excluded seller's plea is never held");
+    }
 }
 
 /// @dev A Stacker whose credit succeeds without pulling anything (the round-4 allowance probe).

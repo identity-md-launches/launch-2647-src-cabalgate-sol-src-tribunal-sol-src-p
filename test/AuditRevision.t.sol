@@ -250,17 +250,19 @@ contract AuditRevisionTest is Fixture {
         }
     }
 
-    function test_dustBuyDoesNotGiveUntrackedTokensLossOrHoldingPoints() public {
+    /// Received PLEA (a claim, a prize) that no buy record covers is scored as held since trading
+    /// opened, at the profit table's middle (10), never with a dust buy's history (a loss: 13).
+    function test_dustBuyDoesNotLendItsHistoryToReceivedTokens() public {
         vm.prank(address(distributor));
         plea.transfer(alice, 1_000_000e18);
         uint256 amount = 1000e18;
-        assertEq(gate.factScore(alice, amount), 21);
+        assertEq(gate.factScore(alice, amount), 16 + 0 + 10 + 5, "received: share 16, profit 10, flat 5");
         buy(alice, 1e12);
         (, uint256 held,) = hook.basisOf(alice);
         assertLt(held, amount);
-        assertEq(gate.factScore(alice, amount), 21, "dust basis scored an untracked sale");
+        assertEq(gate.factScore(alice, amount), 31, "dust basis scored a received sale");
         skip(7 days);
-        assertEq(gate.factScore(alice, amount), 21, "dust basis granted holding points");
+        assertEq(gate.factScore(alice, amount), 16 + 7 + 10 + 5, "held since trading opened, not the dust's loss");
     }
 
     function paid(address who) internal view returns (uint256) {

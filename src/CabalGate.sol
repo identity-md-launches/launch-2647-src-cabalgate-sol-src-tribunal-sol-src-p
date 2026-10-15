@@ -3,7 +3,6 @@ pragma solidity 0.8.26;
 
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import {SafeERC20} from "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
-import {Strings} from "@openzeppelin/contracts/utils/Strings.sol";
 import {IPoolManager} from "v4-core/interfaces/IPoolManager.sol";
 import {TickMath} from "v4-core/libraries/TickMath.sol";
 import {FixedPoint96} from "v4-core/libraries/FixedPoint96.sol";
@@ -241,8 +240,12 @@ contract CabalGate is OracleAttestationConsumer {
         return IPleaHook(plea.hook());
     }
 
-    /// @notice The on-chain fact score (0-45) for `seller` selling `amount` now. Prices are the
-    /// hook's hourly checkpoints, never the spot price, and the holding time is buy-weighted.
+    /// @notice The on-chain fact score (0-45) for `seller` selling `amount` now: share of the balance
+    /// at most 20%: 16, at most 35%: 9, more: 3; held 7 days: 7, 3 days: 4, 1 day: 2; at a loss: 13,
+    /// gain at most 50%: 12, 200%: 10, 500%: 8, 1,000%: 6, more: 4 (PLEA no buy record covers: held since
+    /// trading opened, profit 10); 24h trend up: 9, flat: 5, down: 0.
+    /// Prices are the hook's hourly checkpoints, never the spot price, and the holding time is
+    /// buy-weighted.
     function factScore(address seller, uint256 amount) public view returns (uint8 score) {
         return _factScore(seller, amount, plea.balanceOf(seller));
     }
@@ -258,23 +261,28 @@ contract CabalGate is OracleAttestationConsumer {
     /// own share and the original's, so a floor raise after the fee sale shrank the balance never
     /// drops the appeal into a worse band than the plea it repeats (a smaller appeal keeps its own).
     function _factScoreAt(address seller, uint256 amount, uint256 shareBps) internal view returns (uint8 score) {
-        score = shareBps <= 1_500 ? 16 : shareBps <= 3_000 ? 9 : 3;
+        score = shareBps <= 2_000 ? 16 : shareBps <= 3_500 ? 9 : 3;
         IPleaHook h = hook();
         (uint256 spent, uint256 heldPlea, uint256 avgBuyTime) = h.basisOf(seller);
-        // An untracked distribution or transfer must not inherit the history of a dust buy.
+        // A buy record that covers the plea scores its own holding time and profit. PLEA it does not
+        // cover (the distributor's claims, season prizes, an exempt transfer) never inherits the
+        // history of a dust buy: it counts as held since trading opened, at the profit table's middle.
         bool covered = heldPlea >= amount;
-        if (covered && avgBuyTime != 0 && avgBuyTime <= block.timestamp) {
-            uint256 held = block.timestamp - avgBuyTime;
+        uint256 since = covered ? avgBuyTime : startedAt;
+        if (since != 0 && since <= block.timestamp) {
+            uint256 held = block.timestamp - since;
             score += held >= 7 days ? 7 : held >= 3 days ? 4 : held >= 1 days ? 2 : 0;
         }
         uint256 latest = h.latestPrice();
-        if (covered && heldPlea != 0 && spent != 0) {
+        if (!covered) {
+            score += 10;
+        } else if (spent != 0) {
             uint256 value = FullMath.mulDiv(heldPlea, latest, FixedPoint96.Q96);
             if (value < spent) {
                 score += 13;
             } else {
                 uint256 gainPct = (value - spent) * 100 / spent;
-                score += gainPct <= 50 ? 8 : gainPct <= 200 ? 3 : 0;
+                score += gainPct <= 50 ? 12 : gainPct <= 200 ? 10 : gainPct <= 500 ? 8 : gainPct <= 1000 ? 6 : 4;
             }
         }
         uint256 ago = h.price24hAgo();
@@ -287,11 +295,7 @@ contract CabalGate is OracleAttestationConsumer {
 
     /// @notice Plead to sell `amount` PLEA. Pays 0.5 oracle IMD to the Intake.
     function submitSell(uint256 amount, string calldata text) external returns (uint256 id) {
-        _requireCanPlead(msg.sender);
-        uint256 bal = plea.balanceOf(msg.sender);
-        _checkAmount(amount, bal);
-        _validateText(text);
-        id = _open(msg.sender, amount, text, 0, bal);
+        id = _plead(msg.sender, amount, plea.balanceOf(msg.sender), text);
         _ask(id);
     }
 
@@ -310,13 +314,18 @@ contract CabalGate is OracleAttestationConsumer {
         uint256 maxFeePlea
     ) external returns (uint256 id, uint256 feePlea) {
         _onlyLetterbox(flags);
-        _requireCanPlead(seller);
-        _checkAmount(amount, balance);
-        _validateText(text);
-        id = _open(seller, amount, text, 0, balance);
+        id = _plead(seller, amount, balance, text);
         _flag(id, flags);
         feePlea = _swapFee(seller, feeImd, maxFeePlea);
         _ask(id);
+    }
+
+    /// @dev A new plea (not an appeal) by `seller`, scored on `bal`.
+    function _plead(address seller, uint256 amount, uint256 bal, string calldata text) internal returns (uint256) {
+        _requireCanPlead(seller);
+        _checkAmount(amount, bal);
+        _validateText(text);
+        return _open(seller, amount, text, 0, bal);
     }
 
     /// @notice Appeal a denied plea once, within 4 hours of the denial, for an amount no larger than
@@ -380,9 +389,14 @@ contract CabalGate is OracleAttestationConsumer {
     }
 
     function _onlyLetterbox(uint8 flags) internal view {
-        address lb = plea.letterbox();
-        if (lb == address(0) || msg.sender != lb) revert NotLetterbox();
+        _letterbox();
         if ((flags & FLAG_AUTO_SELL) == 0 || flags > (FLAG_BY_LETTER | FLAG_AUTO_SELL)) revert BadFlags();
+    }
+
+    /// @dev The caller must be PLEA's registered Letterbox (none registered: nobody).
+    function _letterbox() internal view returns (address lb) {
+        lb = plea.letterbox();
+        if (lb == address(0) || msg.sender != lb) revert NotLetterbox();
     }
 
     function _flag(uint256 id, uint8 flags) internal {
@@ -443,12 +457,15 @@ contract CabalGate is OracleAttestationConsumer {
         if (!cabalAlive()) revert CabalNotWatching();
         _clearStale(seller);
         if (pendingOf[seller] != 0) revert PendingExists();
-        uint256 until = lastExecutedAt[seller] + COOLDOWN;
-        if (lastExecutedAt[seller] != 0 && block.timestamp < until) revert Cooldown(until);
-        until = lastDeniedAt[seller] + COOLDOWN;
-        if (lastDeniedAt[seller] != 0 && block.timestamp < until) revert Cooldown(until);
-        until = lastLapsedAt[seller] + COOLDOWN;
-        if (lastLapsedAt[seller] != 0 && block.timestamp < until) revert Cooldown(until);
+        _cooldown(lastExecutedAt[seller]);
+        _cooldown(lastDeniedAt[seller]);
+        _cooldown(lastLapsedAt[seller]);
+    }
+
+    /// @dev Reverts while `COOLDOWN` since `at` (an execution, denial or lapse; zero means none) runs.
+    function _cooldown(uint256 at) internal view {
+        uint256 until = at + COOLDOWN;
+        if (at != 0 && block.timestamp < until) revert Cooldown(until);
     }
 
     /// @dev Clears the seller's open plea when it can no longer act: a pending plea with no
@@ -506,10 +523,7 @@ contract CabalGate is OracleAttestationConsumer {
     function onOracleResult(bytes32 intakeId, OracleAttestation.Attestation calldata a, bytes calldata signature)
         external
     {
-        if (msg.sender != address(intake)) revert NotIntake();
-        uint256 id = pleaOfIntake[intakeId];
-        if (id == 0) revert UnknownRequest(intakeId);
-        Plea storage p = pleas[id];
+        (uint256 id, Plea storage p) = _fromIntake(intakeId);
         if (p.status != Status.Pending || block.timestamp > uint256(p.submittedAt) + PENDING_EXPIRY || !cabalAlive()) {
             revert TooLate();
         }
@@ -549,13 +563,18 @@ contract CabalGate is OracleAttestationConsumer {
         uint16 answered,
         bytes calldata /* signature: empty until the Intake signs failures */
     ) external {
-        if (msg.sender != address(intake)) revert NotIntake();
-        uint256 id = pleaOfIntake[intakeId];
-        if (id == 0) revert UnknownRequest(intakeId);
-        Plea storage p = pleas[id];
+        (uint256 id, Plea storage p) = _fromIntake(intakeId);
         if (p.status != Status.Pending) revert NotPending();
         _expire(id, p);
         emit PleaFailed(id, status, reason, agreed, answered);
+    }
+
+    /// @dev The Intake's callbacks: only the Intake, only for a request this gate asked.
+    function _fromIntake(bytes32 intakeId) internal view returns (uint256 id, Plea storage p) {
+        if (msg.sender != address(intake)) revert NotIntake();
+        id = pleaOfIntake[intakeId];
+        if (id == 0) revert UnknownRequest(intakeId);
+        p = pleas[id];
     }
 
     // ================================================================ sell
@@ -573,8 +592,7 @@ contract CabalGate is OracleAttestationConsumer {
     /// @notice The Letterbox sells an approved plea it escrowed, from its own PLEA, for the seller:
     /// the IMD goes to the Letterbox, which pays the seller (less its auto-sell fee).
     function executeSellFor(uint256 id, uint256 minOut) external returns (uint256 out) {
-        address lb = plea.letterbox();
-        if (lb == address(0) || msg.sender != lb) revert NotLetterbox();
+        address lb = _letterbox();
         Plea storage p = pleas[id];
         if (p.status != Status.Approved || (p.flags & FLAG_AUTO_SELL) == 0) revert NotApproved();
         out = _sell(id, p, lb, lb, minOut);
@@ -593,11 +611,7 @@ contract CabalGate is OracleAttestationConsumer {
         lastExecutedAt[seller] = block.timestamp;
         uint256 amount = p.amount;
         IERC20(address(plea)).safeTransferFrom(from, address(this), amount);
-        callbackExpected = true;
-        (, out) = abi.decode(
-            IPoolManager(plea.poolManager()).unlock(abi.encode(false, seller, amount, uint256(0), to)),
-            (uint256, uint256)
-        );
+        (, out) = _unlock(false, seller, amount, 0, to);
         if (out < minOut) revert SlippageExceeded(out, minOut);
         emit SellExecuted(id, seller, amount, out);
     }
@@ -609,12 +623,20 @@ contract CabalGate is OracleAttestationConsumer {
         if (imdOut == 0) return 0;
         IERC20 p = IERC20(address(plea));
         p.safeTransferFrom(msg.sender, address(this), maxPleaIn);
-        callbackExpected = true;
-        (pleaIn,) = abi.decode(
-            IPoolManager(plea.poolManager()).unlock(abi.encode(true, seller, imdOut, maxPleaIn, msg.sender)),
-            (uint256, uint256)
-        );
+        (pleaIn,) = _unlock(true, seller, imdOut, maxPleaIn, msg.sender);
         if (maxPleaIn > pleaIn) p.safeTransfer(msg.sender, maxPleaIn - pleaIn);
+    }
+
+    /// @dev One swap through the pool manager, answered in `unlockCallback`: the PLEA sold and the
+    /// IMD received.
+    function _unlock(bool exactOut, address seller, uint256 amount, uint256 limit, address to)
+        internal
+        returns (uint256 pleaIn, uint256 imdOut)
+    {
+        callbackExpected = true;
+        return abi.decode(
+            IPoolManager(plea.poolManager()).unlock(abi.encode(exactOut, seller, amount, limit, to)), (uint256, uint256)
+        );
     }
 
     /// @dev One gate swap: an exact-input sale of a plea (IMD to the seller), or an exact-output fee
@@ -668,28 +690,29 @@ contract CabalGate is OracleAttestationConsumer {
         q = string.concat(
             INTRO,
             " Plea #",
-            Strings.toString(id),
+            _dec(id),
             " by ",
-            Strings.toHexString(p.seller),
+            _hex(p.seller),
             " on gate ",
-            Strings.toHexString(address(this)),
+            _hex(address(this)),
             ", chain ",
-            Strings.toString(block.chainid),
+            _dec(block.chainid),
             ": sell ",
-            Strings.toString(uint256(p.amount) / 1e18),
+            _dec(uint256(p.amount) / 1e18),
             " PLEA. Score the plea 0-45 using the definitions and answer with that score."
         );
         if (p.isAppeal) {
+            Plea storage o = pleas[p.originalId];
             q = string.concat(
                 q,
                 " This is an APPEAL of plea #",
-                Strings.toString(p.originalId),
+                _dec(p.originalId),
                 ", which the Cabal DENIED at ",
-                Strings.toString(pleas[p.originalId].score),
+                _dec(o.score),
                 " against a need of ",
-                Strings.toString(pleas[p.originalId].need),
+                _dec(o.need),
                 "; its text was [PLEA]",
-                _text(pleas[p.originalId].text, json),
+                _text(o.text, json),
                 "[/PLEA]. Judge the appeal on its own merits."
             );
         }
@@ -709,15 +732,49 @@ contract CabalGate is OracleAttestationConsumer {
             '","chainId":1,"window":{"hours":1},"answerType":"uint256","evidence":"panel","panelSize":30,"quorum":17,"toleranceBps":1500,"validForSeconds":3600,"allowAmbiguous":true,"guards":{"min":"0","max":"45"},"definitions":{',
             DEFINITIONS,
             '},"consumer":{"chainId":',
-            Strings.toString(block.chainid),
+            _dec(block.chainid),
             ',"verifyingContract":"',
-            Strings.toHexString(address(this)),
+            _hex(address(this)),
             '"}}'
         );
     }
 
     function _text(string storage t, bool json) internal view returns (string memory) {
         return json ? _escape(t) : t;
+    }
+
+    /// @dev `v` in decimal (what OpenZeppelin's Strings.toString returns), written small.
+    function _dec(uint256 v) internal pure returns (string memory s) {
+        assembly ("memory-safe") {
+            // At most 78 digits, written backwards from `end`; the length word sits just before them.
+            let end := add(mload(0x40), 0x80)
+            let q := end
+            for {} 1 {} {
+                q := sub(q, 1)
+                mstore8(q, add(48, mod(v, 10)))
+                v := div(v, 10)
+                if iszero(v) { break }
+            }
+            s := sub(q, 0x20)
+            mstore(s, sub(end, q))
+            mstore(0x40, end)
+        }
+    }
+
+    /// @dev `a` as 0x and 40 lowercase hex digits (what Strings.toHexString(address) returns).
+    function _hex(address a) internal pure returns (string memory s) {
+        assembly ("memory-safe") {
+            s := mload(0x40)
+            mstore(s, 42)
+            mstore(add(s, 0x20), 0x3078000000000000000000000000000000000000000000000000000000000000)
+            let v := a
+            for { let i := 73 } gt(i, 33) { i := sub(i, 1) } {
+                let d := and(v, 0xf)
+                mstore8(add(s, i), add(d, add(48, mul(39, gt(d, 9)))))
+                v := shr(4, v)
+            }
+            mstore(0x40, add(s, 0x60))
+        }
     }
 
     /// @dev JSON-escapes only `"` and `\`; every other byte is already filtered by `_validateText`.

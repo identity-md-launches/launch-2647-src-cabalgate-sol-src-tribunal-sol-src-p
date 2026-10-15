@@ -706,7 +706,7 @@ contract ForkTestnetTest is Test {
             _letter(a, "I bought at the launch and held a day; one tenth pays for my bike repair, the rest stays.");
         emit log_named_uint("letter gas", gasLetter);
         CabalGate.Plea memory p = gate.getPlea(id);
-        assertEq(p.amount, bal * 15 / 100 > 2_500_000e18 ? 2_500_000e18 : bal * 15 / 100, "15%, within the 2.5M cap");
+        assertEq(p.amount, bal * 20 / 100 > 2_500_000e18 ? 2_500_000e18 : bal * 20 / 100, "20%, within the 2.5M cap");
         assertEq(p.flags, 3);
         (address payer,,, bool done) = intake.requests(p.intakeId);
         assertEq(payer, address(gate));
@@ -824,7 +824,7 @@ contract ForkTestnetTest is Test {
         uint256 id = gate.lastPleaOf(a);
         CabalGate.Plea memory p = gate.getPlea(id);
         assertEq(p.seller, a);
-        assertEq(p.amount, bal * 15 / 100 > 2_500_000e18 ? 2_500_000e18 : bal * 15 / 100, "15%, within the 2.5M cap");
+        assertEq(p.amount, bal * 20 / 100 > 2_500_000e18 ? 2_500_000e18 : bal * 20 / 100, "20%, within the 2.5M cap");
         assertEq(p.flags, 3);
         (address payer,,, bool done) = intake.requests(p.intakeId);
         assertEq(payer, address(gate));

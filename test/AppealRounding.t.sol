@@ -93,7 +93,7 @@ contract AppealRoundingTest is Fixture {
     }
 
     function test_shareBandsAndFiftyPercentClampKeepTheirExistingRounding() public {
-        uint256[3] memory shares = [uint256(1_500), 3_000, 5_000];
+        uint256[3] memory shares = [uint256(2_000), 3_500, 5_000];
         for (uint256 i; i < shares.length; ++i) {
             uint256 snapshot = vm.snapshotState();
             uint256 originalBalance = 5_000_000e18 + 99;
