@@ -881,6 +881,18 @@ contract LetterboxMainnetPathTest is Fixture {
         vm.expectRevert(Letterbox.OracleAssetNotImd.selector);
         other.deploy();
     }
+
+    /// Round 2 (R2-A2-1 / R2-A2-2): a manifest that mints the pool IMD, or names an oracle asset other
+    /// than the gate's, would deploy a Letterbox that can never send a letter; both are refused.
+    function test_aMismatchedOracleAssetOrMintingThePoolImdIsRefused() public {
+        LetterboxSettings mintPool = new LetterboxSettings(plea, gate, seasons, imd, imd, true);
+        vm.expectRevert(Letterbox.MintWithPoolImd.selector);
+        mintPool.deploy();
+        // The gate of this fixture pulls its fee in the pool IMD; a Letterbox minting another token.
+        LetterboxSettings mismatch = new LetterboxSettings(plea, gate, seasons, imd, oimd, true);
+        vm.expectRevert(Letterbox.OracleAssetMismatch.selector);
+        mismatch.deploy();
+    }
 }
 
 /// @dev Stands in for PleaLaunch: holds the settings a Letterbox reads from its deployer.

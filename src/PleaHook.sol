@@ -79,8 +79,15 @@ contract PleaHook {
     uint256 public constant LAUNCH_WINDOW = 90 minutes;
     uint256 public constant LAUNCH_EXTRA_BPS = 7_000; // 70% -> 0% linear, to pool liquidity
     uint256 public constant LAUNCH_MAX_BUY = 5_000_000e18;
+<<<<<<< HEAD
     /// @notice The seed's market cap: 14,000 IMD on mainnet (5,700 on the Sepolia runs).
     uint256 public constant MARKET_CAP_IMD = 14_000e18;
+=======
+    /// @dev Below this much IMD in the PoolManager a buy's unfunded payouts join liquidity (2 IMD covers
+    /// the 1.5% payouts of the largest buy the launch window allows).
+    uint256 public constant PAYOUT_RESERVE = 2e18;
+    uint256 public constant MARKET_CAP_IMD = 5_700e18;
+>>>>>>> testnet7
     uint256 public constant CAP_FLOOR = 900_000e18;
     /// @notice The cap may travel from the seeded inventory down to `CAP_FLOOR` in this long at the
     /// fastest; the daily allowance is fixed at seed (`capDecayPerDay`). It only ever follows buys.
@@ -179,7 +186,6 @@ contract PleaHook {
     /// @notice IMD the current wall was deployed with (what it has spent so far is `wallImd - imdInWall`).
     uint256 public wallImd;
     bool private callbackExpected;
-    bool private hasBought;
     /// @dev The hour of the newest checkpoint, so `latestPrice` reads one ring entry, not all 25.
     uint64 private lastCheckpointHour;
 
@@ -472,7 +478,7 @@ contract PleaHook {
     /// @notice Settles the specified-side fee against the realised fill (refunding the rest), takes
     /// the fee on the unspecified currency, delivers the PLEA of an exact-input buy as ERC-20, pays
     /// every fee, applies the cap, then pays cashback as the very last step.
-    function afterSwap(address, PoolKey calldata key, SwapParams calldata params, BalanceDelta delta, bytes calldata)
+    function afterSwap(address sender, PoolKey calldata key, SwapParams calldata params, BalanceDelta delta, bytes calldata)
         external
         returns (bytes4, int128)
     {
@@ -504,8 +510,9 @@ contract PleaHook {
         uint256 specDue = specAmt * (specifiedIsImd ? _imdRate(buy) : PLEA_BURN_BPS) / BPS;
         if (specDue > specFee) specDue = specFee;
         if (specFee > specDue) {
-            if (trader != address(0)) _refund(trader, specifiedIsImd, specFee - specDue);
-            else _keep(specifiedIsImd, specFee - specDue);
+            // No resolved trader (only after the death: a router that cannot name its caller): the
+            // router is refunded, as it is the only party the hook knows.
+            _refund(trader == address(0) ? sender : trader, specifiedIsImd, specFee - specDue);
         }
 
         uint256 imdBasis;
@@ -551,18 +558,15 @@ contract PleaHook {
     }
 
     /// @dev Pays the fee deltas the hook holds, in this swap: PLEA burned; IMD to the owner, the prize
-    /// pot and the hook (for cashback); the pool share kept as claims for the wall. Only the first
-    /// buy may redirect an unfunded payout to liquidity. Later shortages pay ERC-6909 IMD claims
-    /// to the same beneficiaries, redeemable once the swapper settles its input.
+    /// pot and the hook (for cashback); the pool share kept as claims for the wall. While the
+    /// PoolManager holds under `PAYOUT_RESERVE` of IMD, a buy's unfunded payouts join liquidity. Later
+    /// shortages pay ERC-6909 IMD claims to the same beneficiaries, redeemable once the swapper
+    /// settles its input.
     /// @return cashback IMD now held by the hook for the trader.
     function _payFees(address trader, bool buy, uint256 imdBasis, uint256 imdFee, uint256 pleaFee)
         internal
         returns (uint256 cashback)
     {
-        // A buy whose IMD fee rounds to zero (a 1-wei buy) funds nothing, so it must not consume the
-        // first-buy exception for the buy that follows it.
-        bool firstBuy = buy && !hasBought;
-        if (buy && imdFee != 0) hasBought = true;
         if (pleaFee != 0) {
             poolManager.take(Currency.wrap(plea), address(this), pleaFee);
             IPLEA(plea).burn(pleaFee);
@@ -576,8 +580,12 @@ contract PleaHook {
             // No seasons after the Cabal dies: the prize share joins pool liquidity.
             if (_alive()) toPrize = imdBasis * PRIZE_BPS / BPS;
             uint256 out = cashback + toOwner + toPrize;
-            bool asClaims = imd.balanceOf(address(poolManager)) < out;
-            if (asClaims && firstBuy) {
+            uint256 pmImd = imd.balanceOf(address(poolManager));
+            bool asClaims = pmImd < out;
+            // The opening buys: while the PoolManager holds under PAYOUT_RESERVE of IMD (the swapper's
+            // input settles after this), a buy's unfunded payouts join pool liquidity. No flag: a dust
+            // buy, whatever its fee, cannot use the exception up for the buy that follows it.
+            if (asClaims && buy && pmImd < PAYOUT_RESERVE) {
                 emit PayoutsToPool(out);
                 (cashback, toOwner, toPrize, out) = (0, 0, 0, 0);
             }
@@ -627,19 +635,6 @@ contract PleaHook {
         }
     }
 
-    /// @dev A fee surplus nobody can be refunded to (no trader resolved): IMD joins the pool share,
-    /// PLEA is burned.
-    function _keep(bool isImd, uint256 amount) internal {
-        if (isImd) {
-            poolManager.mint(address(this), _id(address(imd)), amount);
-            retainClaims += amount;
-            totalPoolFees += amount;
-        } else {
-            poolManager.take(Currency.wrap(plea), address(this), amount);
-            IPLEA(plea).burn(amount);
-            totalBurned += amount;
-        }
-    }
 
     /// @dev The Stacker's sIMD vault, or zero when the Stacker does not expose `SIMD()` (a launch
     /// rehearsal with a placeholder address): the constructor must not depend on a live call.
@@ -663,6 +658,8 @@ contract PleaHook {
                 if (_validTrader(trader, sender)) return trader;
             }
         }
+        // A codeless sender cannot reach the PoolManager's unlock callback in practice; the branch is
+        // imd/acc's shared trader rule, kept as written.
         if (sender.code.length == 0) return _validTrader(sender, sender) ? sender : address(0);
         (bool ok, bytes memory ret) = sender.staticcall{gas: MSG_SENDER_GAS}(abi.encodeWithSignature("msgSender()"));
         if (!ok || ret.length != 32) return address(0);
@@ -963,7 +960,9 @@ contract PleaHook {
             refTick = target;
             refBlock = uint64(block.number);
         }
-        curBlockTick = currentTick();
+        // A tick with no active liquidity (a seller's limit reached through an empty pool after the
+        // death, then zero-fill swaps) is not a traded price and never pulls the reference.
+        if (poolManager.getLiquidity(poolId()) != 0) curBlockTick = currentTick();
     }
 
     /// @dev The guard value an observed tick allows: the tick itself for a band below spot (PLEA is

@@ -21,8 +21,10 @@ interface IPLEAForLaunch {
 /// anyone calls `deployHook` with a salt mined off chain (script/MineSalt.s.sol): the hook lands on
 /// an address carrying its flag bits, and PLEA mints 82% to it, 6% to Seasons and 12% to the
 /// distributor. Anyone calls `deployLetterbox` and `deployTribunal` once each with the committed
-/// creation code: both read their settings from this contract. Every result is fully determined by
-/// the committed code, so front-running any of these calls changes nothing. A zero Tribunal hash
+/// creation code: both read their settings from this contract. Every result's code and settings are
+/// fully determined by the committed code, so front-running any of these calls changes nothing but,
+/// for the hook, the address: the salt is the caller's, so a front-runner may land the same hook at
+/// another flag-valid address (the Letterbox and the Tribunal use salt 0 and have fixed addresses). A zero Tribunal hash
 /// launches with objections off for good. `seed` opens trading: the owner may call it any time,
 /// anyone once `START` has passed.
 contract PleaLaunch {

@@ -199,7 +199,7 @@ contract TraderFallbackAdversarialTest is TraderFallbackFixture {
         assertNoRouterCredit();
     }
 
-    function test_partialBuyWithoutTraderKeepsBothCashbackAndImdFeeSurplusForPool() public {
+    function test_partialBuyWithoutTraderKeepsTheCashbackForThePoolAndRefundsTheRouter() public {
         endCabal();
         uint160 spot = hook.currentSqrtPriceX96();
         uint160 limit = hook.pleaIsZero() ? spot + spot / 200 : spot - spot / 200;
@@ -230,18 +230,26 @@ contract TraderFallbackAdversarialTest is TraderFallbackFixture {
         assertTrue(vm.revertToState(state));
 
         unusualRouter.configure(abi.encode(address(0)), 0);
+        uint256 routerImdBefore = imd.balanceOf(address(unusualRouter));
         vm.prank(alice, bob);
         uint256 unresolvedOut = unusualRouter.buyExactInLimit(500e18, "", limit);
         assertEq(unresolvedOut, resolvedOut, "identity does not change the pool fill");
-        assertEq(hook.totalPoolFees() - poolBefore, resolvedPoolFee + resolvedCashback + refund);
-        assertEq(hook.retainClaims() - claimsBefore, resolvedClaims + resolvedCashback + refund);
+        // The cashback stays in the pool; the unearned fee of the partial fill is refunded to the router
+        // (round-2 audit R2-A3-3), the only party the hook knows.
+        assertEq(hook.totalPoolFees() - poolBefore, resolvedPoolFee + resolvedCashback);
+        assertEq(hook.retainClaims() - claimsBefore, resolvedClaims + resolvedCashback);
+        assertEq(imd.balanceOf(address(unusualRouter)) - routerImdBefore, refund, "the router gets the refund");
         assertEq(pm.balanceOf(address(hook), uint256(uint160(address(imd)))), hook.retainClaims());
         assertEq(hook.totalCashback(), cashbackBefore);
         assertEq(simd.balanceOf(alice), sharesBefore);
         assertEq(imd.balanceOf(alice), resolvedWalletImd - refund);
         (, uint256 held,) = hook.basisOf(alice);
         assertEq(held, 0);
-        assertNoRouterCredit();
+        // The router holds only the refund: no sIMD, no PLEA, no buy record.
+        assertEq(simd.balanceOf(address(unusualRouter)), 0);
+        assertEq(plea.balanceOf(address(unusualRouter)), 0);
+        (uint256 rSpent, uint256 rHeld,) = hook.basisOf(address(unusualRouter));
+        assertEq(rSpent + rHeld, 0);
     }
 
     function test_gateSaleAlwaysNamesSellerEvenWhenRelayedByLetterboxRunner() public {

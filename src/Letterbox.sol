@@ -84,6 +84,8 @@ contract Letterbox is ReentrancyGuardTransient {
     error NoPrice();
     error MintOnMainnet();
     error OracleAssetNotImd();
+    error MintWithPoolImd();
+    error OracleAssetMismatch();
     error BadName();
     error NameTaken();
     error TooSmallForTheFee(uint256 value);
@@ -165,8 +167,13 @@ contract Letterbox is ReentrancyGuardTransient {
         bool mint_ = l.mintOracleFee();
         if (mint_ && block.chainid == 1) revert MintOnMainnet();
         if (!mint_ && oracleAsset_ != imd_) revert OracleAssetNotImd();
+        // Minting the pool IMD would overwrite the oracle-fee allowance with the wall's (one token).
+        if (mint_ && oracleAsset_ == imd_) revert MintWithPoolImd();
         plea = IPLEA(l.plea());
         gate = CabalGate(l.gate());
+        // The gate pulls the oracle fee in its own asset: a manifest naming two different tokens would
+        // deploy a Letterbox that can never send a letter and can never be replaced.
+        if (address(gate.oracleAsset()) != oracleAsset_) revert OracleAssetMismatch();
         seasons = ISeasonsForLetters(l.seasons());
         imd = IERC20(imd_);
         oracleAsset = IERC20(oracleAsset_);

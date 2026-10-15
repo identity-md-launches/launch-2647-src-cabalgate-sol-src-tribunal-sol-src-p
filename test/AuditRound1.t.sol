@@ -37,11 +37,14 @@ contract AuditRound1Test is Fixture {
         return uint256(uint160(address(imd)));
     }
 
-    /// R1-A3-1: a 1-wei buy pays no fee, so it must not consume the first-buy exception; the real
-    /// first buy still routes its payouts to the pool, and the buy after it pays sIMD, not claims.
+    /// R1-A3-1 / R2-A3-1: dust buys (1 wei: no fee; 100 wei: a 1-wei fee and no payouts) must not use
+    /// up the opening exception; the real first buy still routes its payouts to the pool, and the buy
+    /// after it pays sIMD, not claims. The rule is the PoolManager's IMD, not a flag.
     function test_aDustFirstBuyDoesNotConsumeTheFirstBuyException() public {
         assertEq(imd.balanceOf(address(pm)), 0, "fresh PoolManager");
         buy(carol, 1); // one wei: the IMD fee rounds to zero
+        buy(carol, 100); // a 1-wei fee, payouts of zero
+        assertLt(imd.balanceOf(address(pm)), hook.PAYOUT_RESERVE());
         vm.expectEmit(false, false, false, false, address(hook));
         emit PleaHook.PayoutsToPool(0);
         buy(bob, 100e18); // still the first fee-paying buy: payouts to liquidity, as accepted
@@ -107,6 +110,70 @@ contract AuditRound1Test is Fixture {
         int24 near = pz ? hi : lo;
         // The wall sits against the market band, not thousands of ticks below it.
         assertTrue(pz ? near > limitTick + 3000 : near < limitTick - 3000, "the wall followed the drained tick");
+    }
+
+    /// R2-A3-2: after the death, zero-fill swaps inside the liquidity-free region (a 1-wei buy with a
+    /// limit a hair toward the market) never pull refTick toward the drained tick; once a buy restores
+    /// spot, the wall is placed against the market.
+    function test_zeroFillSwapsInTheEmptyRegionDoNotDragTheReferenceTick() public {
+        buy(alice, 100e18);
+        skip(DEADMAN + 1);
+        vm.prank(address(distributor));
+        plea.transfer(alice, 50_000_000e18);
+        (int24 mLower, int24 mUpper,) = hook.market();
+        bool pz = hook.pleaIsZero();
+        int24 limitTick = pz ? mLower - 6000 : mUpper + 6000;
+        vm.startPrank(alice);
+        plea.approve(address(router), type(uint256).max);
+        router.sellExactInLimit(50_000_000e18, abi.encode(alice), TickMath.getSqrtPriceAtTick(limitTick));
+        vm.stopPrank();
+        assertEq(hook.currentTick(), limitTick);
+        int24 ref0 = hook.refTick();
+        // 20 blocks of zero-fill buys nudging the price one tick toward the market each time.
+        for (uint256 i = 1; i <= 20; ++i) {
+            vm.roll(vm.getBlockNumber() + 1);
+            skip(12);
+            int24 t = pz ? limitTick + int24(int256(i)) : limitTick - int24(int256(i));
+            vm.prank(bob);
+            router.buyExactInLimit(1, abi.encode(bob), TickMath.getSqrtPriceAtTick(t));
+        }
+        // The reference may still settle toward the last liquid tick, never toward the drained one.
+        int24 ref1 = hook.refTick();
+        assertTrue(pz ? ref1 >= ref0 : ref1 <= ref0, "zero-fill swaps dragged the reference tick");
+        assertTrue(pz ? ref1 > limitTick + 3000 : ref1 < limitTick - 3000, "the reference followed the drained tick");
+        vm.roll(vm.getBlockNumber() + 1);
+        skip(1 hours);
+        buy(bob, 50e18); // spot is back inside the market band
+        vm.startPrank(alice);
+        imd.approve(address(hook), type(uint256).max);
+        hook.fundWall(10e18);
+        vm.stopPrank();
+        vm.prank(keeper);
+        hook.rebalance();
+        (int24 lo, int24 hi, uint128 liq) = hook.wall();
+        assertGt(liq, 0, "no wall");
+        int24 near = pz ? hi : lo;
+        assertTrue(pz ? near > limitTick + 3000 : near < limitTick - 3000, "the wall was parked at the drained tick");
+    }
+
+    /// R2-A3-3: a price-limited partial fill through a router that cannot name its caller (no trader)
+    /// refunds the unearned fee to the router instead of keeping it.
+    function test_partialFillWithoutATraderRefundsTheRouter() public {
+        buy(alice, 100e18);
+        skip(DEADMAN + 1); // free trading: a buy needs no recipient
+        uint160 limit = hook.currentSqrtPriceX96();
+        bool pz = hook.pleaIsZero();
+        // One tick of room: the fill is a sliver of the 100 IMD requested.
+        int24 t = hook.currentTick() + (pz ? int24(-1) : int24(1));
+        limit = TickMath.getSqrtPriceAtTick(t);
+        uint256 routerImd = imd.balanceOf(address(router));
+        uint256 routerClaims = pm.balanceOf(address(router), _imdId());
+        uint256 pool0 = hook.totalPoolFees();
+        vm.prank(alice);
+        router.buyExactInLimit(100e18, "", limit);
+        uint256 refunded = imd.balanceOf(address(router)) - routerImd + pm.balanceOf(address(router), _imdId()) - routerClaims;
+        assertGt(refunded, 1e18, "the unearned fee on the unfilled part came back to the router");
+        assertLt(hook.totalPoolFees() - pool0, 0.1e18, "the surplus was kept as pool fees");
     }
 
     /// R1-A2-2: the site's appeal of a small plea made straight at the gate (no floor there) is refused
