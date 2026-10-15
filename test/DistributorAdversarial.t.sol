@@ -1,6 +1,8 @@
 // SPDX-License-Identifier: MIT
 pragma solidity 0.8.26;
 
+import {ArtifactDeployment} from "./utils/ArtifactDeployment.sol";
+
 import {Test} from "forge-std/Test.sol";
 import {Ownable} from "@openzeppelin/contracts/access/Ownable.sol";
 import {IERC20Errors} from "@openzeppelin/contracts/interfaces/draft-IERC6093.sol";
@@ -30,14 +32,25 @@ abstract contract DistributionFixture is Test {
         }
         treasury = makeAddr("isolated hook treasury");
         manager = makeAddr("isolated pool manager");
-        token = new PLEA(address(this));
-        MockIMD quote = new MockIMD();
-        MockIntake intake = new MockIntake(quote);
-        cabal = new CabalGate(
-            address(token), address(intake), address(quote), address(quote), makeAddr("signer"), 18000, 118800
+        token = PLEA(ArtifactDeployment.deploy("PLEA.sol:PLEA", abi.encode(address(this))));
+        MockIMD quote = MockIMD(ArtifactDeployment.deploy("Mocks.sol:MockIMD", bytes("")));
+        MockIntake intake = MockIntake(ArtifactDeployment.deploy("Mocks.sol:MockIntake", abi.encode(quote)));
+        cabal = CabalGate(
+            ArtifactDeployment.deploy(
+                "CabalGate.sol:CabalGate",
+                abi.encode(
+                    address(token), address(intake), address(quote), address(quote), makeAddr("signer"), 18000, 118800
+                )
+            )
         );
-        seasons = new Seasons(address(token), address(cabal), address(quote));
-        drop = new PleaDistributor(address(token), address(this));
+        seasons = Seasons(
+            ArtifactDeployment.deploy(
+                "Seasons.sol:Seasons", abi.encode(address(token), address(cabal), address(quote), address(0))
+            )
+        );
+        drop = PleaDistributor(
+            ArtifactDeployment.deploy("PleaDistributor.sol:PleaDistributor", abi.encode(address(token), address(this)))
+        );
         token.setLauncher(address(cabal), address(seasons), address(drop));
         token.init(treasury, manager);
         cabal.begin();

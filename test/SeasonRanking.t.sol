@@ -1,6 +1,8 @@
 // SPDX-License-Identifier: MIT
 pragma solidity 0.8.26;
 
+import {ArtifactDeployment} from "./utils/ArtifactDeployment.sol";
+
 import {Test} from "forge-std/Test.sol";
 import {PLEA} from "../src/PLEA.sol";
 import {Seasons} from "../src/Seasons.sol";
@@ -44,10 +46,16 @@ contract SeasonRankingTest is Test {
     function setUp() public {
         gate = new RankingResults();
         vm.warp(gate.startedAt());
-        PLEA plea = new PLEA(address(this));
-        imd = new MockIMD();
-        seasons = new Seasons(address(plea), address(gate), address(imd));
-        PleaDistributor distributor = new PleaDistributor(address(plea), address(this));
+        PLEA plea = PLEA(ArtifactDeployment.deploy("PLEA.sol:PLEA", abi.encode(address(this))));
+        imd = MockIMD(ArtifactDeployment.deploy("Mocks.sol:MockIMD", bytes("")));
+        seasons = Seasons(
+            ArtifactDeployment.deploy(
+                "Seasons.sol:Seasons", abi.encode(address(plea), address(gate), address(imd), address(0))
+            )
+        );
+        PleaDistributor distributor = PleaDistributor(
+            ArtifactDeployment.deploy("PleaDistributor.sol:PleaDistributor", abi.encode(address(plea), address(this)))
+        );
         plea.setLauncher(address(gate), address(seasons), address(distributor));
     }
 

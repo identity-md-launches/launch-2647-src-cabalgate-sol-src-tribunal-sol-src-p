@@ -22,6 +22,7 @@ interface ISeasonsForTribunal {
     function recorded(uint256 pleaId) external view returns (bool);
     function excluded(address wallet) external view returns (bool);
     function checkpoint() external;
+    function checkpointObjection(uint256 pleaId, uint256 amount) external;
 }
 
 interface IMintableFee {
@@ -189,15 +190,18 @@ contract Tribunal is OracleAttestationConsumer, ReentrancyGuardTransient {
         lowest = c.count == 0 ? NO_SCORE : c.lowest;
         if (c.sustained) return (false, true, lowest);
         if (c.pendingId != 0 && !_stale(objections[c.pendingId])) return (true, false, lowest);
-        (,, bool approved, uint64 verdictAt) = gate.result(pleaId);
-        held = approved && c.count < MAX_OBJECTIONS && block.timestamp <= uint256(verdictAt) + OBJECTION_WINDOW;
+        (address seller,, bool approved, uint64 verdictAt) = gate.result(pleaId);
+        // An excluded seller's plea earns no points and nobody may object to it: never held.
+        held = approved && !seasons.excluded(seller) && c.count < MAX_OBJECTIONS
+            && block.timestamp <= uint256(verdictAt) + OBJECTION_WINDOW;
     }
 
     /// @notice One line for explorers.
     function status(uint256 pleaId) external view returns (string memory) {
-        (, uint8 score, bool approved, uint64 verdictAt) = gate.result(pleaId);
+        (address seller, uint8 score, bool approved, uint64 verdictAt) = gate.result(pleaId);
         string memory head = string.concat("Plea #", Strings.toString(pleaId), unicode" · ");
         if (!approved) return string.concat(head, "not approved: nothing to object to");
+        if (seasons.excluded(seller)) return string.concat(head, "seller excluded: no points, nothing to object to");
         Case storage c = cases[pleaId];
         uint8 need = gate.getPlea(pleaId).need;
         if (c.pendingId != 0 && !_stale(objections[c.pendingId])) {
@@ -341,7 +345,7 @@ contract Tribunal is OracleAttestationConsumer, ReentrancyGuardTransient {
     }
 
     /// @notice Pays a decided objection's stake once: to the objector when sustained or void, to the
-    /// season's prize pot when overruled.
+    /// plea's season prize pot when overruled (rollover if that season has already closed).
     function settle(uint256 id) external nonReentrant {
         Objection storage o = objections[id];
         if (o.ruling == Ruling.None || o.ruling == Ruling.Pending) revert NotRuled(id);
@@ -349,7 +353,7 @@ contract Tribunal is OracleAttestationConsumer, ReentrancyGuardTransient {
         o.settled = true;
         address to = o.ruling == Ruling.Overruled ? address(seasons) : o.objector;
         imd.safeTransfer(to, STAKE);
-        if (to == address(seasons)) seasons.checkpoint();
+        if (to == address(seasons)) seasons.checkpointObjection(o.pleaId, STAKE);
         emit StakeSettled(id, to, STAKE);
     }
 

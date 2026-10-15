@@ -224,7 +224,13 @@ contract LetterboxHandler is Test {
             _checkSold(id);
             _check(imd.balanceOf(runner) - tips == TIP, "the runner earns exactly the tip");
             _check(imd.balanceOf(w) - writerImd == out, "the sale's IMD goes to the writer");
-            _check(imd.balanceOf(plea.seasons()) - pot >= 0.35e18, "the auto-sell fee reached the season pot");
+            bool byLetter = (gate.getPlea(id).flags & 1) != 0;
+            _check(
+                byLetter
+                    ? imd.balanceOf(plea.seasons()) - pot < 0.35e18
+                    : imd.balanceOf(plea.seasons()) - pot >= 0.35e18,
+                "the auto-sell fee reaches the season pot from the site's box only, never from a letter"
+            );
             _check(plea.balanceOf(w) == writerPlea && amount > 0, "a delivery moves no PLEA of the writer's");
         } catch {}
     }

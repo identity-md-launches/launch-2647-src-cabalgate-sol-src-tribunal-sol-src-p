@@ -22,6 +22,7 @@ interface ISeasonsForLetters {
     function rollover() external view returns (uint256);
     function BONUS_SEASONS() external view returns (uint256);
     function BONUS_PER_SEASON() external view returns (uint256);
+    function pointsFor(address wallet, uint8 score) external view returns (uint8);
 
     struct Entry {
         address wallet;
@@ -57,13 +58,15 @@ interface IMintable {
 /// Fees are paid in PLEA in the letter's own transaction: the gate sells just enough of the writer's
 /// PLEA (at most the hourly snapshot value + 10%) for the oracle fee, a 0.25 IMD runner tip and, for
 /// an appeal, the wall share. The plea's PLEA waits here in escrow. An approved plea is sold by
-/// anyone through `deliver` (for at least 95% of its snapshot value), who earns the tip; the
-/// auto-sell fee, 0.35 IMD of the sale (never more than the sale), goes to the season's prize pot and the
-/// rest to the writer.
-/// Selling by hand on the site inside the 7-minute window costs nothing extra. Every other ending
-/// returns the escrow and the tip to the writer through `settle`; the fee is only ever taken from a
-/// sale. The site's "sell automatically" box uses `plead` / `appealAuto`, with the same escrow,
-/// tip and fee. A plea worth less than twice the fee at the snapshot is refused.
+/// anyone through `deliver` (for at least 95% of its snapshot value), who earns the tip, and the
+/// whole sale goes to the writer: a letter pays no auto-sell fee (0.5 IMD oracle fee + 0.25 IMD
+/// tip, and the tip comes back to a writer who sends `SELL`).
+/// The site's "sell automatically" box (`plead` / `appealAuto`) has the same escrow and tip, and
+/// its delivered sale pays the auto-sell fee: 0.35 IMD of the sale (never more than the sale) to the
+/// season's prize pot, the rest to the writer. Selling by hand on the site inside the 7-minute
+/// window costs nothing extra. Every other ending returns the escrow and the tip to the writer
+/// through `settle`; the fee is only ever taken from a sale. A plea worth less than 0.70 IMD at the
+/// snapshot is refused, letters included, so a fee can never eat a sale.
 /// @dev No owner and no admin. No public function's ID can be the start of a valid letter (its four
 /// bytes are not the beginning of control-free UTF-8 text), so no letter can call a function by
 /// accident; a test checks the whole ABI. `deliver` runs the `SELL` letter's sale too, with the
@@ -83,6 +86,8 @@ contract Letterbox is ReentrancyGuardTransient {
     error BadName();
     error NameTaken();
     error TooSmallForTheFee(uint256 value);
+    /// @dev A plea's text is at most 280 bytes (UTF-8): about 280 Latin, 140 Cyrillic or Arabic, 93 CJK characters.
+    error LetterTooLong(uint256 length, uint256 max);
 
     event Escrowed(uint256 indexed id, address indexed writer, uint256 amount, uint256 feePlea, uint8 flags);
     event Delivered(uint256 indexed id, address indexed runner, uint256 imdOut, uint256 tip, uint256 fee);
@@ -104,10 +109,14 @@ contract Letterbox is ReentrancyGuardTransient {
     /// @dev Paid to whoever delivers an approved plea; refunded when no sale happens.
     uint256 internal constant TIP = 0.25e18;
     /// @dev The auto-sell fee: taken from a delivered sale's IMD and paid to the season's prize pot
-    /// (Seasons). Nothing is taken when no sale happens.
+    /// (Seasons). Only the site's auto-sell box pays it; a letter (BY_LETTER) does not. Nothing is
+    /// taken when no sale happens.
     uint256 internal constant AUTO_SELL_FEE = 0.35e18;
-    /// @dev A plea must be worth at least this at the snapshot, so the fee never exceeds half a sale.
-    uint256 internal constant MIN_SALE_VALUE = 2 * AUTO_SELL_FEE;
+    /// @dev A plea must be worth at least this at the snapshot (letters too), so the fee never
+    /// exceeds half a sale and a letter's fees stay small next to it.
+    uint256 internal constant MIN_SALE_VALUE = 0.7e18;
+    /// @dev CabalGate's text limit, repeated so an over-long letter is refused with a clear error.
+    uint256 internal constant MAX_PLEA_BYTES = 280;
     /// @dev Auto-sell minimum: 95% of the PLEA's value at the hook's hourly snapshot.
     uint256 internal constant MIN_OUT_BPS = 9_500;
     /// @dev The fee swap may spend at most the snapshot value of the IMD it buys, plus 10%.
@@ -248,8 +257,9 @@ contract Letterbox is ReentrancyGuardTransient {
     // ================================================================ runners
 
     /// @notice Anyone sells an approved plea inside its 7-minute window, for at least 95% of its
-    /// snapshot value: 0.35 IMD of the sale goes to the season's prize pot, the rest to the writer,
-    /// the points are recorded, and the caller earns the 0.25 IMD tip.
+    /// snapshot value: the sale goes to the writer (less the 0.35 IMD auto-sell fee to the season's
+    /// prize pot when the plea came from the site's auto-sell box, never from a letter), the points
+    /// are recorded, and the caller earns the 0.25 IMD tip.
     /// @return out The IMD paid to the writer.
     function deliver(uint256 id) external nonReentrant returns (uint256 out) {
         return _deliver(id, msg.sender);
@@ -265,6 +275,7 @@ contract Letterbox is ReentrancyGuardTransient {
     // ================================================================ internals
 
     function _plead(address writer, uint256 amount, string memory text, uint8 flags) internal returns (uint256 id) {
+        _checkLength(text);
         _settleOpen(writer);
         uint256 bal = plea.balanceOf(writer);
         if (amount == 0) {
@@ -287,6 +298,7 @@ contract Letterbox is ReentrancyGuardTransient {
         returns (uint256 id)
     {
         if (originalId == 0) revert NothingToAppeal();
+        _checkLength(text);
         _settleOpen(writer);
         uint256 originalAmount = gate.getPlea(originalId).amount;
         uint256 amount = originalAmount;
@@ -363,11 +375,13 @@ contract Letterbox is ReentrancyGuardTransient {
         uint256 minOut = FullMath.mulDiv(amount, _price(), FixedPoint96.Q96) * MIN_OUT_BPS / BPS;
         IERC20(address(plea)).forceApprove(address(gate), amount);
         _close(id, e);
-        // The gate pays the sale's IMD here; the fee goes to the season pot, the rest to the writer.
-        // The fee never exceeds the sale: the 0.70 IMD floor was checked at the plea's hourly
-        // snapshot, and a fall of more than half by the delivery's snapshot would otherwise underflow.
+        // The gate pays the sale's IMD here. A letter's sale goes whole to the writer; the site's
+        // auto-sell pays the fee to the season pot and the rest to the writer. The fee never exceeds
+        // the sale: the 0.70 IMD floor was checked at the plea's hourly snapshot, and a fall of more
+        // than half by the delivery's snapshot would otherwise underflow.
         uint256 sold = gate.executeSellFor(id, minOut);
-        uint256 fee = sold < AUTO_SELL_FEE ? sold : AUTO_SELL_FEE;
+        uint256 fee;
+        if ((gate.getPlea(id).flags & BY_LETTER) == 0) fee = sold < AUTO_SELL_FEE ? sold : AUTO_SELL_FEE;
         out = sold - fee;
         if (out != 0) imd.safeTransfer(writer, out);
         if (fee != 0) {
@@ -380,8 +394,8 @@ contract Letterbox is ReentrancyGuardTransient {
         emit Delivered(id, runner, out, TIP, fee);
     }
 
-    /// @dev A plea must be worth at least twice the auto-sell fee at the snapshot (the sale pays at
-    /// least 95% of that), so the fee can never eat a sale.
+    /// @dev A plea must be worth at least 0.70 IMD at the snapshot (the sale pays at least 95% of
+    /// that), so the auto-sell fee can never eat a sale; letters keep the same floor.
     function _requireWorthTheFee(uint256 amount) internal view {
         uint256 value = FullMath.mulDiv(amount, _price(), FixedPoint96.Q96);
         if (value < MIN_SALE_VALUE) revert TooSmallForTheFee(value);
@@ -435,6 +449,11 @@ contract Letterbox is ReentrancyGuardTransient {
     function _record(uint256 id) internal {
         if (seasons.recorded(id)) return;
         try seasons.record(id) {} catch {}
+    }
+
+    /// @dev The gate refuses any text over 280 bytes (`BadPleaText`); a letter says so by name.
+    function _checkLength(string memory text) internal pure {
+        if (bytes(text).length > MAX_PLEA_BYTES) revert LetterTooLong(bytes(text).length, MAX_PLEA_BYTES);
     }
 
     function _price() internal view returns (uint256 p) {
@@ -613,11 +632,13 @@ contract Letterbox is ReentrancyGuardTransient {
     }
 
     /// @dev With a Tribunal, points wait for the objection window and any pending objection, a
-    /// sustained objection leaves none, and the recorded score is the lowest any panel gave.
+    /// sustained objection leaves none, and the recorded score is the lowest any panel gave; a
+    /// seat holder's points are the score times 1.2 (`Seasons.pointsFor`).
     function _points(address w, uint256 id, CabalGate.Plea memory p) internal view returns (string memory) {
         (bool held, bool sustained, uint8 lowest) = _standing(id);
         if (sustained) return "no points: an objection was sustained";
-        string memory pts = string.concat("+", Strings.toString(lowest < p.score ? lowest : p.score), " points");
+        string memory pts =
+            string.concat("+", Strings.toString(seasons.pointsFor(w, lowest < p.score ? lowest : p.score)), " points");
         if (!seasons.recorded(id)) {
             if (!held) return string.concat(pts, " once recorded");
             uint256 until = uint256(p.verdictAt) + OBJECTION_WINDOW;

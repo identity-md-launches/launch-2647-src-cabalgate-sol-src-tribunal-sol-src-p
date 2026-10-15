@@ -1,6 +1,8 @@
 // SPDX-License-Identifier: MIT
 pragma solidity 0.8.26;
 
+import {ArtifactDeployment} from "./utils/ArtifactDeployment.sol";
+
 import {Test} from "forge-std/Test.sol";
 import {Seasons} from "../src/Seasons.sol";
 
@@ -115,7 +117,11 @@ contract TribunalStandingTest is Test {
     function setUp() public {
         gate = new StandingGate(seller);
         plea = new StandingPlea();
-        seasons = new Seasons(address(plea), address(gate), address(new EmptyToken()));
+        seasons = Seasons(
+            ArtifactDeployment.deploy(
+                "Seasons.sol:Seasons", abi.encode(address(plea), address(gate), address(new EmptyToken()), address(0))
+            )
+        );
         vm.warp(uint256(gate.startedAt()) + 1 hours);
     }
 

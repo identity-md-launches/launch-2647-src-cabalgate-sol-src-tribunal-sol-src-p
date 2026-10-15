@@ -12,7 +12,7 @@ contract MineSalt is Script {
     function run() external {
         PleaLaunch launch = PleaLaunch(vm.envAddress("LAUNCH"));
         bytes memory code = abi.encodePacked(
-            type(PleaHook).creationCode,
+            vm.getCode("PleaHook.sol:PleaHook"),
             abi.encode(
                 vm.envAddress("POOL_MANAGER"),
                 launch.plea(),

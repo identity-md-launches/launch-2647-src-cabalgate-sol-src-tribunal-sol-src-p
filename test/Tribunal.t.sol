@@ -302,6 +302,22 @@ contract TribunalTest is Fixture {
         objectFails(bob, id, Tribunal.SellerExcluded.selector);
     }
 
+    function test_anExcludedSellersPleaIsNeverHeld() public {
+        fund(OWNER);
+        buy(OWNER, 50e18);
+        uint256 id = approvedPlea(OWNER, 45);
+        (bool held, bool sustained, uint8 lowest) = tribunal.standing(id);
+        assertFalse(held, "nobody may object, so nothing waits");
+        assertFalse(sustained);
+        assertEq(lowest, 255);
+        assertEq(
+            tribunal.status(id),
+            string.concat(
+                unicode"Plea #", vm.toString(id), unicode" · seller excluded: no points, nothing to object to"
+            )
+        );
+    }
+
     function test_onlyApprovedPleasCanBeObjectedTo() public {
         uint256 pending = plead(alice, plea.balanceOf(alice) / 10);
         objectFails(bob, pending, abi.encodeWithSelector(Tribunal.NotApproved.selector, pending));

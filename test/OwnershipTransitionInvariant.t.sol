@@ -1,6 +1,8 @@
 // SPDX-License-Identifier: MIT
 pragma solidity 0.8.26;
 
+import {ArtifactDeployment} from "./utils/ArtifactDeployment.sol";
+
 import {Test} from "forge-std/Test.sol";
 import {Ownable} from "@openzeppelin/contracts/access/Ownable.sol";
 import {PLEA} from "src/PLEA.sol";
@@ -128,11 +130,17 @@ contract OwnershipTransitionInvariantTest is Test {
         actors = [makeAddr("initial PLEA owner"), makeAddr("first season leader"), makeAddr("second season leader")];
         SeasonResults results = new SeasonResults();
         vm.warp(results.startedAt());
-        token = new PLEA(actors[0]);
-        quote = new MockIMD();
-        seasons = new Seasons(address(token), address(results), address(quote));
+        token = PLEA(ArtifactDeployment.deploy("PLEA.sol:PLEA", abi.encode(actors[0])));
+        quote = MockIMD(ArtifactDeployment.deploy("Mocks.sol:MockIMD", bytes("")));
+        seasons = Seasons(
+            ArtifactDeployment.deploy(
+                "Seasons.sol:Seasons", abi.encode(address(token), address(results), address(quote), address(0))
+            )
+        );
         wall = new SeasonWallSink(quote);
-        drop = new PleaDistributor(address(token), actors[0]);
+        drop = PleaDistributor(
+            ArtifactDeployment.deploy("PleaDistributor.sol:PleaDistributor", abi.encode(address(token), actors[0]))
+        );
         token.setLauncher(address(results), address(seasons), address(drop));
         token.init(address(wall), deployCode("PoolManager.sol:PoolManager", abi.encode(address(this))));
         for (uint256 id = 1; id <= 4; ++id) {

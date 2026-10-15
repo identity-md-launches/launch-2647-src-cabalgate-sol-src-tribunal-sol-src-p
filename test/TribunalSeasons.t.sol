@@ -193,7 +193,9 @@ contract TribunalSeasonsTest is Fixture {
         assertTrue(_has(letterbox.status(alice), "+40 points held: an objection is pending"), letterbox.status(alice));
         string memory n = vm.toString(gate.getPlea(id).need); // re-scored at the need: overruled
         assertTrue(rule(oid, gate.getPlea(id).need));
-        assertTrue(_has(letterbox.status(alice), string.concat("+", n, " points once recorded")), letterbox.status(alice));
+        assertTrue(
+            _has(letterbox.status(alice), string.concat("+", n, " points once recorded")), letterbox.status(alice)
+        );
         seasons.record(id);
         assertTrue(
             _has(letterbox.status(alice), string.concat("+", n, " points (season 1, rank 1)")), letterbox.status(alice)
@@ -283,7 +285,7 @@ contract TribunalLateDeployTest is Fixture {
         skip(1 days);
         uint256 id = approvedPlea(alice, 40);
         seasons.record(id); // no Tribunal yet: recorded at once, today's behaviour
-        tribunal = Tribunal(launch.deployTribunal(type(Tribunal).creationCode));
+        tribunal = Tribunal(launch.deployTribunal(vm.getCode("Tribunal.sol:Tribunal")));
         assertTrue(seasons.recorded(id));
         (, bool sustained,) = tribunal.standing(id);
         assertFalse(sustained);

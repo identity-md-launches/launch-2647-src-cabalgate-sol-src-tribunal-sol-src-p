@@ -1,6 +1,8 @@
 // SPDX-License-Identifier: MIT
 pragma solidity 0.8.26;
 
+import {ArtifactDeployment} from "./utils/ArtifactDeployment.sol";
+
 import {Test} from "forge-std/Test.sol";
 import {OracleAttestation, OracleAttestationConsumer} from "../src/OracleAttestation.sol";
 import {CabalGate} from "../src/CabalGate.sol";
@@ -64,7 +66,7 @@ contract OracleConformanceTest is Test {
     }
 
     function gateArgs(address signer) internal returns (bytes memory) {
-        PLEA plea = new PLEA(address(this));
+        PLEA plea = PLEA(ArtifactDeployment.deploy("PLEA.sol:PLEA", abi.encode(address(this))));
         address a = address(0x1234);
         return abi.encode(address(plea), a, a, a, signer, uint256(15 days), uint256(33 hours));
     }

@@ -9,8 +9,9 @@ import {IPLEA, IGate, IPleaHook} from "./interfaces/IPleaParts.sol";
 
 /// @title Seasons — PLEA's leaderboard and prizes while the Cabal lives
 /// @notice Seasons of `SEASON` each run back to back from the moment trading opens; the last one
-/// ends when the Cabal dies. An approved plea earns its judges' score (0-45) as points; each
-/// wallet's best three count. When a season ends anyone calls `closeSeason`: the top 25 with at
+/// ends when the Cabal dies. An approved plea earns its judges' score (0-45) as points, times 1.2
+/// (rounded down) when the seller holds an IMD seat NFT at the time of recording; each wallet's
+/// best three count. When a season ends anyone calls `closeSeason`: the top 25 with at
 /// least 60 points are paid shares of the prize pot in IMD that fall in a straight line from 4.50%
 /// (rank 1) to 3.50% (rank 25), and unpaid shares roll over. The pot is fed by the hook's 0.25%
 /// prize fee and by overruled objections' stakes. After the last season is closed, whatever is left
@@ -36,8 +37,12 @@ contract Seasons {
     error OwnerExcluded();
     error Held(uint256 pleaId);
     error ObjectionSustained(uint256 pleaId);
+    error NotTribunal();
+    error UnfundedStake();
 
     event Recorded(uint256 indexed pleaId, uint256 indexed season, address indexed wallet, uint8 score, uint16 points);
+    /// @notice The seller held an IMD seat when the plea was recorded: it counts `pleaPoints` (score x 1.2).
+    event SeatMultiplier(uint256 indexed pleaId, address indexed wallet, uint8 score, uint8 pleaPoints);
     event SeasonClosedOut(uint256 indexed season, uint256 pot, uint256 paid);
     event PrizePaid(uint256 indexed season, address indexed wallet, uint8 rank, uint256 amount);
     event LeftoverToWall(uint256 amount);
@@ -60,6 +65,12 @@ contract Seasons {
     /// @notice The PLEA bonus: 10,000,000 PLEA for each of the first six seasons (6% in all).
     uint256 public constant BONUS_SEASONS = 6;
     uint256 public constant BONUS_PER_SEASON = 10_000_000e18;
+    /// @notice Points for a plea are its score times this, over 10,000, when the seller holds at
+    /// least one IMD seat NFT when the plea is recorded (binary, not per seat). Points only: the
+    /// Tribunal's score/need comparison and the 60-point bar are untouched.
+    uint256 public constant SEAT_MULTIPLIER_BPS = 12_000;
+    /// @dev Gas lent to the seat NFT's `balanceOf`; a read that fails or runs out means no multiplier.
+    uint256 internal constant SEAT_READ_GAS = 100_000;
     /// @dev Prize shares in basis points, two bytes per rank, 4.50% down to 3.50%, 10,000 in all.
     bytes internal constant SHARES =
         hex"01c201be01ba01b601b101ad01a901a501a1019c019801940190018c01880184017f017b01770173016f016a01660162015e";
@@ -67,6 +78,8 @@ contract Seasons {
     IPLEA public immutable plea;
     IGate public immutable gate;
     IERC20 public immutable imd;
+    /// @notice The IMD seat NFT (ERC-721) whose holders' points are multiplied; zero means none.
+    address public immutable seat;
     uint256 public immutable SEASON;
 
     mapping(uint256 => Entry[TOP]) internal _top;
@@ -84,10 +97,11 @@ contract Seasons {
     uint256 private accountedPot;
     bool private redeeming;
 
-    constructor(address plea_, address gate_, address imd_) {
+    constructor(address plea_, address gate_, address imd_, address seat_) {
         plea = IPLEA(plea_);
         gate = IGate(gate_);
         imd = IERC20(imd_);
+        seat = seat_;
         SEASON = IGate(gate_).SEASON();
     }
 
@@ -107,8 +121,24 @@ contract Seasons {
         return _excluded(wallet);
     }
 
+    /// @notice The wallet's three counted pleas' points (after the seat multiplier) in a season.
     function bestOf(uint256 season, address wallet) external view returns (uint8[3] memory) {
         return _best[season][wallet];
+    }
+
+    /// @notice The points a plea with `score` earns `wallet` if recorded now: the score, times 1.2
+    /// (rounded down) while the wallet holds an IMD seat NFT.
+    function pointsFor(address wallet, uint8 score) public view returns (uint8) {
+        return holdsSeat(wallet) ? uint8(uint256(score) * SEAT_MULTIPLIER_BPS / 10_000) : score;
+    }
+
+    /// @notice Whether `wallet` holds at least one IMD seat NFT. Read, never trust: no seat contract,
+    /// a reverting one or a malformed answer means no multiplier, and can never block a record.
+    function holdsSeat(address wallet) public view returns (bool) {
+        if (seat == address(0)) return false;
+        (bool ok, bytes memory ret) =
+            seat.staticcall{gas: SEAT_READ_GAS}(abi.encodeWithSignature("balanceOf(address)", wallet));
+        return ok && ret.length == 32 && abi.decode(ret, (uint256)) != 0;
     }
 
     /// @notice A season's window. It exists once it has started while the Cabal was alive; it ends
@@ -156,6 +186,24 @@ contract Seasons {
         emit PrizeFunded(season, added);
     }
 
+    /// @notice Accounts an overruled stake to the plea's season, even if `settle` is called in a
+    /// later season. Only the committed Tribunal can label a payment this way; it transfers the
+    /// stake first. Closed pots cannot be paid again, so their late stakes become rollover.
+    function checkpointObjection(uint256 pleaId, uint256 amount) external {
+        address tribunal = _tribunal();
+        if (tribunal == address(0) || msg.sender != tribunal) revert NotTribunal();
+        (,, bool approved, uint64 verdictAt) = gate.result(pleaId);
+        if (!approved) revert NotApproved(pleaId);
+        if (pot() - accountedPot < amount) revert UnfundedStake();
+        accountedPot += amount;
+        uint256 season = _seasonOf(verdictAt);
+        if (closed[season]) rollover += amount;
+        else seasonFees[season] += amount;
+        emit PrizeFunded(season, amount);
+        // Any other unaccounted donations still belong to the running season.
+        checkpoint();
+    }
+
     /// @notice True once the Cabal is dead and its last season is closed.
     function finished() public view returns (bool) {
         if (gate.diedAt() == 0) return false;
@@ -186,33 +234,41 @@ contract Seasons {
     /// that reverts can never block a record or a close.
     function _standing(uint256 pleaId) internal view returns (bool held, bool sustained, uint8 lowest) {
         lowest = type(uint8).max;
-        address launcher = plea.launcher();
-        if (launcher == address(0)) return (false, false, lowest);
-        (bool ok, bytes memory ret) = launcher.staticcall(abi.encodeWithSignature("tribunal()"));
-        if (!ok || ret.length != 32) return (false, false, lowest);
-        address t = abi.decode(ret, (address));
+        address t = _tribunal();
         if (t == address(0)) return (false, false, lowest);
-        (ok, ret) = t.staticcall(abi.encodeWithSignature("standing(uint256)", pleaId));
+        (bool ok, bytes memory ret) = t.staticcall(abi.encodeWithSignature("standing(uint256)", pleaId));
         if (!ok || ret.length != 96) return (false, false, lowest);
         return abi.decode(ret, (bool, bool, uint8));
+    }
+
+    function _tribunal() internal view returns (address) {
+        address launcher = plea.launcher();
+        if (launcher == address(0)) return address(0);
+        (bool ok, bytes memory ret) = launcher.staticcall(abi.encodeWithSignature("tribunal()"));
+        if (!ok || ret.length != 32) return address(0);
+        return abi.decode(ret, (address));
     }
 
     function _seasonOf(uint64 verdictAt) internal view returns (uint256) {
         return (uint256(verdictAt) - gate.startedAt()) / SEASON;
     }
 
+    /// @dev `score` is the judged score (the lowest of the panels); the plea's points are that score
+    /// times the seat multiplier when the seller holds a seat as it is recorded.
     function _record(uint256 pleaId, uint256 season, address seller, uint8 score) internal {
         recorded[pleaId] = true;
+        uint8 pleaPoints = pointsFor(seller, score);
+        if (pleaPoints != score) emit SeatMultiplier(pleaId, seller, score, pleaPoints);
         uint8[3] storage b = _best[season][seller];
         uint64[3] storage ids = _bestPleaIds[season][seller];
         uint256 mi;
-        // Replace the lowest score, or the newest plea among equal lowest scores.
+        // Replace the lowest points, or the newest plea among equal lowest points.
         for (uint256 i = 1; i < 3; ++i) {
             if (b[i] < b[mi] || (b[i] == b[mi] && ids[i] > ids[mi])) mi = i;
         }
         uint16 pts;
-        if (score > b[mi] || (score == b[mi] && pleaId < ids[mi])) {
-            b[mi] = score;
+        if (pleaPoints > b[mi] || (pleaPoints == b[mi] && pleaId < ids[mi])) {
+            b[mi] = pleaPoints;
             ids[mi] = uint64(pleaId);
             pts = uint16(uint256(b[0]) + b[1] + b[2]);
             uint64 newest = ids[0];

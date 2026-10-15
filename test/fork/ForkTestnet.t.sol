@@ -1,6 +1,8 @@
 // SPDX-License-Identifier: MIT
 pragma solidity 0.8.26;
 
+import {ArtifactDeployment} from "../utils/ArtifactDeployment.sol";
+
 import {Test, console2} from "forge-std/Test.sol";
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import {PLEA} from "../../src/PLEA.sol";
@@ -57,6 +59,8 @@ contract ForkTestnetTest is Test {
     address constant WRITER = 0x3d3C0Df7C1a17d384545e9D7C8228897bD9625CB;
     address constant ORACLE_IMD = 0x44a1Cd38474FB1748400E7DEb5F8D786ccE3F89A;
     IERC20 constant IMD = IERC20(0x2B69099E59b05901faA1DD164fabf098bf831E82);
+    /// @dev The IMD seat NFT (test) on Sepolia (open mint), read by Seasons for the points multiplier.
+    address constant SEAT = 0xa0443799c320E16C80801c9C1911F3571260287F;
     IERC20 constant SIMD = IERC20(0xF9e2EEc3B610ec6781f7438aC5Fb4bc049d81Cc1);
     address constant STACKER = 0x0457276D7b036818B3EddC1A4A3FCeda61e9314d;
     address constant POOL_MANAGER = 0xE03A1074c86CFeDd5C142C4F04F1a1536e203543;
@@ -106,32 +110,48 @@ contract ForkTestnetTest is Test {
     }
 
     function _deploy() internal {
-        plea = new PLEA(owner);
-        gate = new CabalGate(address(plea), INTAKE, ORACLE_IMD, address(IMD), vm.addr(SIGNER_KEY), SEASON, DEADMAN);
-        seasons = new Seasons(address(plea), address(gate), address(IMD));
-        PleaDistributor distributor = new PleaDistributor(address(plea), owner);
-        launch = new PleaLaunch(
-            address(plea),
-            address(gate),
-            address(seasons),
-            address(distributor),
-            POOL_MANAGER,
-            address(IMD),
-            STACKER,
-            CREDIT_GAS,
-            START,
-            ORACLE_IMD,
-            true,
-            keccak256(type(Letterbox).creationCode),
-            keccak256(type(Tribunal).creationCode)
+        plea = PLEA(ArtifactDeployment.deploy("PLEA.sol:PLEA", abi.encode(owner)));
+        gate = CabalGate(
+            ArtifactDeployment.deploy(
+                "CabalGate.sol:CabalGate",
+                abi.encode(address(plea), INTAKE, ORACLE_IMD, address(IMD), vm.addr(SIGNER_KEY), SEASON, DEADMAN)
+            )
+        );
+        seasons = Seasons(
+            ArtifactDeployment.deploy(
+                "Seasons.sol:Seasons", abi.encode(address(plea), address(gate), address(IMD), SEAT)
+            )
+        );
+        PleaDistributor distributor = PleaDistributor(
+            ArtifactDeployment.deploy("PleaDistributor.sol:PleaDistributor", abi.encode(address(plea), owner))
+        );
+        launch = PleaLaunch(
+            ArtifactDeployment.deploy(
+                "PleaLaunch.sol:PleaLaunch",
+                abi.encode(
+                    address(plea),
+                    address(gate),
+                    address(seasons),
+                    address(distributor),
+                    POOL_MANAGER,
+                    address(IMD),
+                    STACKER,
+                    CREDIT_GAS,
+                    START,
+                    ORACLE_IMD,
+                    true,
+                    keccak256(vm.getCode("Letterbox.sol:Letterbox")),
+                    keccak256(vm.getCode("Tribunal.sol:Tribunal"))
+                )
+            )
         );
         // After the launch transaction: anyone deploys the committed Letterbox.
-        letterbox = Letterbox(launch.deployLetterbox(type(Letterbox).creationCode));
+        letterbox = Letterbox(launch.deployLetterbox(vm.getCode("Letterbox.sol:Letterbox")));
     }
 
     function _deployHook() internal {
         bytes memory code = abi.encodePacked(
-            type(PleaHook).creationCode,
+            vm.getCode("PleaHook.sol:PleaHook"),
             abi.encode(POOL_MANAGER, address(plea), address(IMD), STACKER, owner, address(seasons), CREDIT_GAS)
         );
         bytes32 h = keccak256(code);
@@ -538,7 +558,7 @@ contract ForkTestnetTest is Test {
         console2.log("sell: PLEA in", amount);
         console2.log("sell: IMD at spot", spot);
         console2.log("sell: IMD out", out);
-        assertLt(out, spot * 9825 / 10_000, "fees (1.75%) were charged");
+        assertLt(out, spot * 9800 / 10_000, "fees (2.0%) were charged");
         assertGt(out, spot * 95 / 100, "fees plus impact stay small for a 5% sale");
         assertEq(uint8(_status(id)), uint8(CabalGate.Status.Executed));
         assertEq(plea.balanceOf(address(gate)), 0);
@@ -701,7 +721,7 @@ contract ForkTestnetTest is Test {
         uint256 out = letterbox.deliver(id);
         emit log_named_uint("deliver gas", g - gasleft());
         assertEq(IMD.balanceOf(a) - imdBefore, out);
-        assertGe((out + 0.35e18) * 10_000, _spotValue(p.amount) * 9_500, "at least 95% of spot before the fee");
+        assertGe(out * 10_000, _spotValue(p.amount) * 9_500, "at least 95% of spot, no auto-sell fee on a letter");
         assertEq(IMD.balanceOf(runner), 0.25e18);
         assertTrue(seasons.recorded(id));
         assertEq(plea.balanceOf(address(letterbox)), 0);
@@ -714,7 +734,7 @@ contract ForkTestnetTest is Test {
     /// own domain, the stake goes to the season pot, and the points wait for the window. A second
     /// objection the panel cannot answer is void and its stake comes back.
     function test_objectionThroughTheLiveIntake() public {
-        Tribunal tribunal = Tribunal(launch.deployTribunal(type(Tribunal).creationCode));
+        Tribunal tribunal = Tribunal(launch.deployTribunal(vm.getCode("Tribunal.sol:Tribunal")));
         assertEq(address(tribunal), launch.predictTribunal());
         assertEq(address(tribunal.intake()), INTAKE);
         address a = w[1];
@@ -735,7 +755,8 @@ contract ForkTestnetTest is Test {
         vm.startPrank(b);
         IMD.approve(address(tribunal), type(uint256).max);
         g = gasleft();
-        uint256 oid = tribunal.object(id, "Three lines of boilerplate: the same rent story every wallet tells this week.");
+        uint256 oid =
+            tribunal.object(id, "Three lines of boilerplate: the same rent story every wallet tells this week.");
         emit log_named_uint("object gas", g - gasleft());
         vm.stopPrank();
         assertEq(stakeBefore - IMD.balanceOf(b), 0.35e18, "stake in pool IMD");
@@ -814,7 +835,7 @@ contract ForkTestnetTest is Test {
         letterbox.letter("SELL");
         assertEq(uint8(_status(id)), uint8(CabalGate.Status.Executed));
         assertGe(
-            (IMD.balanceOf(a) - imdBefore - 0.25e18 + 0.35e18) * 10_000, _spotValue(p.amount) * 9_500, "sale + own tip"
+            (IMD.balanceOf(a) - imdBefore - 0.25e18) * 10_000, _spotValue(p.amount) * 9_500, "sale + own tip, no fee"
         );
         assertTrue(seasons.recorded(id));
         assertEq(IMD.balanceOf(address(letterbox)), 0);

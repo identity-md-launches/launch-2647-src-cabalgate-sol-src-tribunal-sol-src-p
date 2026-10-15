@@ -1,6 +1,8 @@
 // SPDX-License-Identifier: MIT
 pragma solidity 0.8.26;
 
+import {ArtifactDeployment} from "./utils/ArtifactDeployment.sol";
+
 import {Test} from "forge-std/Test.sol";
 import {PLEA} from "src/PLEA.sol";
 import {Seasons} from "src/Seasons.sol";
@@ -241,11 +243,17 @@ contract SeasonInvariantTest is Test {
 
     function setUp() public {
         vm.warp(1791817200);
-        token = new PLEA(address(this));
+        token = PLEA(ArtifactDeployment.deploy("PLEA.sol:PLEA", abi.encode(address(this))));
         results = new SeasonResults();
-        imd = new MockIMD();
-        seasons = new Seasons(address(token), address(results), address(imd));
-        PleaDistributor drop = new PleaDistributor(address(token), address(this));
+        imd = MockIMD(ArtifactDeployment.deploy("Mocks.sol:MockIMD", bytes("")));
+        seasons = Seasons(
+            ArtifactDeployment.deploy(
+                "Seasons.sol:Seasons", abi.encode(address(token), address(results), address(imd), address(0))
+            )
+        );
+        PleaDistributor drop = PleaDistributor(
+            ArtifactDeployment.deploy("PleaDistributor.sol:PleaDistributor", abi.encode(address(token), address(this)))
+        );
         wall = new SeasonWallSink(imd);
         token.setLauncher(address(results), address(seasons), address(drop));
         IPoolManager pm = IPoolManager(deployCode("PoolManager.sol:PoolManager", abi.encode(address(this))));

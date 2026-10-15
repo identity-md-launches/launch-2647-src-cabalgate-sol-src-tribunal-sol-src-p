@@ -32,10 +32,10 @@ contract ManifestFactory {
 }
 
 abstract contract ManifestFixture is Test {
-    // Static constructor values from the mainnet draft launch.json. Only $owner and earlier
-    // contract references are resolved locally; no external contract is installed or called.
-    // IMD is both the oracle fee asset and the pool currency, so the Letterbox buys the oracle fee
-    // with PLEA (mintOracleFee = false).
+    // Static constructor values from the mainnet launch.json. Only $owner and earlier contract
+    // references are resolved locally; no external contract is installed or called. IMD is both
+    // the oracle fee asset and the pool currency, so the Letterbox buys the oracle fee with PLEA
+    // (mintOracleFee = false).
     address constant INTAKE = 0xa43e6F75ee006411F79Ac1C84120606C2330DE82;
     address constant ORACLE_ASSET = 0xD34a99Bc0f67aE1bbd63C660e6d0b0dd03E263B7;
     address constant IMD = 0xD34a99Bc0f67aE1bbd63C660e6d0b0dd03E263B7;
@@ -43,6 +43,8 @@ abstract contract ManifestFixture is Test {
     address constant POOL_MANAGER = 0x000000000004444c5dc75cB358380D2e3dE08A90;
     /// @dev imd/acc's mainnet Stacker (launch #1409, 2026-10-12).
     address constant STACKER = 0x06909F672301F28A810f78cfe7a754851269F4F0;
+    /// @dev The IMD seat NFT (identity.md), read by Seasons for the points multiplier.
+    address constant SEAT = 0x0000EC93127BAa929e58E97DD0095a2bfb38EC1d;
     /// @dev Placeholder until launch.json has it.
     uint256 constant START = 1791817200;
     uint256 constant SEASON = 15 days;
@@ -79,7 +81,7 @@ abstract contract ManifestFixture is Test {
             "CabalGate.sol:CabalGate",
             abi.encode(expected[0], INTAKE, ORACLE_ASSET, IMD, SIGNER, SEASON, uint256(118800))
         );
-        _prepare(2, "Seasons.sol:Seasons", abi.encode(expected[0], expected[1], IMD));
+        _prepare(2, "Seasons.sol:Seasons", abi.encode(expected[0], expected[1], IMD, SEAT));
         _prepare(3, "PleaDistributor.sol:PleaDistributor", abi.encode(expected[0], owner));
         _prepare(
             4,
@@ -136,6 +138,7 @@ abstract contract ManifestFixture is Test {
         assertEq(address(s.gate()), expected[1]);
         assertEq(address(s.imd()), IMD);
         assertEq(s.SEASON(), SEASON);
+        assertEq(s.seat(), SEAT);
         assertEq(address(PleaDistributor(expected[3]).plea()), expected[0]);
         assertEq(PleaDistributor(expected[3]).owner(), owner);
         assertEq(l.plea(), expected[0]);
@@ -147,8 +150,8 @@ abstract contract ManifestFixture is Test {
         assertEq(l.START(), START);
         assertEq(l.oracleAsset(), ORACLE_ASSET);
         assertEq(l.mintOracleFee(), MINT_ORACLE_FEE);
-        assertEq(l.letterboxCodeHash(), keccak256(type(Letterbox).creationCode));
-        assertEq(l.tribunalCodeHash(), keccak256(type(Tribunal).creationCode));
+        assertEq(l.letterboxCodeHash(), keccak256(vm.getCode("Letterbox.sol:Letterbox")));
+        assertEq(l.tribunalCodeHash(), keccak256(vm.getCode("Tribunal.sol:Tribunal")));
         assertEq(l.tribunal(), address(0), "the Tribunal is deployed after the launch");
         assertEq(l.hookInitCodeHash(), keccak256(_hookCode()));
         assertEq(p.totalSupply(), 0, "hook deployment must remain a separate step");
@@ -174,11 +177,17 @@ abstract contract ManifestFixture is Test {
 }
 
 contract AtomicManifestTest is ManifestFixture {
+    function test_launchJsonNotesFitTheManifestCap() public view {
+        string memory json = vm.readFile("launch.json");
+        string memory notes = vm.parseJsonString(json, ".notes");
+        assertLe(bytes(notes).length, 4_000, "manifest notes exceed the schema cap");
+    }
+
     /// The five-contract launch in one factory transaction, measured as the chain charges it: the
     /// init codes come in as transaction data (EIP-2028) and execute from memory, plus the real
     /// factory's measured overhead. It must fit under Ethereum's 16,777,216-gas cap even with the
     /// headroom IMD's deployer adds to the gas limit.
-    function test_factoryDeploysExactManifestOnAnEmptyChain() public {
+    function test_factoryDeploysExactManifestOnAnEmptySepoliaChain() public {
         assertEq(
             INTAKE.code.length + ORACLE_ASSET.code.length + IMD.code.length + POOL_MANAGER.code.length
                 + STACKER.code.length,
@@ -216,8 +225,7 @@ contract AtomicManifestTest is ManifestFixture {
     function test_launchJsonEncodesOracleMintFlagAsStaticWord() public view {
         string memory json = vm.readFile("launch.json");
         string memory flag = vm.parseJsonString(json, ".contracts[4].constructorArgs[10]");
-        // Mainnet: the Letterbox buys the oracle fee with PLEA, so the flag is the static bool word 0.
-        assertEq(flag, MINT_ORACLE_FEE ? "1" : "0", "the mint flag must be the static bool word 0 or 1");
+        assertEq(flag, "1", "the Sepolia mint flag must be the static bool word 1");
         assertEq(abi.encode(vm.parseUint(flag)), abi.encode(MINT_ORACLE_FEE));
     }
 
@@ -226,22 +234,19 @@ contract AtomicManifestTest is ManifestFixture {
         string memory json = vm.readFile("launch.json");
         assertEq(vm.parseJsonString(json, ".contracts[4].contract"), "PleaLaunch");
         bytes32 committed = vm.parseBytes32(vm.parseJsonString(json, ".contracts[4].constructorArgs[11]"));
-        assertEq(committed, keccak256(type(Letterbox).creationCode), "update launch.json after changing Letterbox");
+        assertEq(
+            committed, keccak256(vm.getCode("Letterbox.sol:Letterbox")), "update launch.json after changing Letterbox"
+        );
         assertEq(committed, letterboxHash);
-    }
-
-    /// The manifest schema caps `notes` at 4,000 characters and refuses the whole file otherwise
-    /// (run 5's import audit: 4,753 would have parked the launch at the manifest step).
-    function test_launchJsonNotesFitTheManifestCap() public view {
-        string memory json = vm.readFile("launch.json");
-        assertLe(bytes(vm.parseJsonString(json, ".notes")).length, 4000, "launch.json notes over 4,000 characters");
     }
 
     /// launch.json commits to this build's Tribunal too (its 13th PleaLaunch argument).
     function test_launchJsonCommitsToThisTribunal() public view {
         string memory json = vm.readFile("launch.json");
         bytes32 committed = vm.parseBytes32(vm.parseJsonString(json, ".contracts[4].constructorArgs[12]"));
-        assertEq(committed, keccak256(type(Tribunal).creationCode), "update launch.json after changing Tribunal");
+        assertEq(
+            committed, keccak256(vm.getCode("Tribunal.sol:Tribunal")), "update launch.json after changing Tribunal"
+        );
         assertEq(committed, tribunalHash);
     }
 }

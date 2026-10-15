@@ -1,6 +1,8 @@
 // SPDX-License-Identifier: MIT
 pragma solidity 0.8.26;
 
+import {ArtifactDeployment} from "./ArtifactDeployment.sol";
+
 import {Test} from "forge-std/Test.sol";
 import {PoolManager} from "v4-core/PoolManager.sol";
 import {IPoolManager} from "v4-core/interfaces/IPoolManager.sol";
@@ -13,12 +15,12 @@ import {PleaDistributor} from "../../src/PleaDistributor.sol";
 import {Letterbox} from "../../src/Letterbox.sol";
 import {PleaLaunch} from "../../src/PleaLaunch.sol";
 import {PleaHook} from "../../src/PleaHook.sol";
-import {MockIMD, MockSIMD, MockStacker, BuyRouter, MockIntake} from "./Mocks.sol";
+import {MockIMD, MockSIMD, MockStacker, BuyRouter, MockIntake, MockSeat} from "./Mocks.sol";
 
 /// @dev Replays the launch (PLEA, CabalGate, Seasons, PleaDistributor, PleaLaunch in one call
 /// context), deploys the Letterbox through PleaLaunch, mines the hook salt, deploys the hook and
 /// opens trading.
-contract Fixture is Test {
+abstract contract Fixture is Test {
     address constant OWNER = 0x4b91078b2374c956A65F7Af0999CaE0a935E6821;
     /// @dev anvil's second account, used as the test oracle signer.
     uint256 constant SIGNER_KEY = 0x59c6995e998f97a5a0044966f0945389dc9e86dae88c7a8412f4603b6b78690d;
@@ -35,6 +37,8 @@ contract Fixture is Test {
     MockSIMD simd;
     MockStacker stacker;
     MockIntake intake;
+    /// @dev The IMD seat NFT stand-in Seasons reads for the points multiplier (nobody holds one by default).
+    MockSeat seat;
     PLEA plea;
     CabalGate gate;
     Seasons seasons;
@@ -85,18 +89,20 @@ contract Fixture is Test {
         vm.warp(T0);
         vm.roll(1000);
         setTimings();
-        pm = new PoolManager(address(this));
+        pm = PoolManager(deployCode("PoolManager.sol:PoolManager", abi.encode(address(this))));
         deployImd();
-        oimd = new MockIMD();
-        simd = new MockSIMD();
-        stacker = new MockStacker(imd, simd);
-        intake = new MockIntake(oracleFeeToken());
+        oimd = MockIMD(ArtifactDeployment.deploy("Mocks.sol:MockIMD", bytes("")));
+        simd = MockSIMD(ArtifactDeployment.deploy("Mocks.sol:MockSIMD", bytes("")));
+        stacker = MockStacker(ArtifactDeployment.deploy("Mocks.sol:MockStacker", abi.encode(imd, simd)));
+        intake = MockIntake(ArtifactDeployment.deploy("Mocks.sol:MockIntake", abi.encode(oracleFeeToken())));
         deployLaunch();
         deployHook();
         vm.prank(OWNER);
         launch.seed();
         afterSeed();
-        router = new BuyRouter(IPoolManager(address(pm)), hook, imd, plea);
+        router = BuyRouter(
+            ArtifactDeployment.deploy("Mocks.sol:BuyRouter", abi.encode(IPoolManager(address(pm)), hook, imd, plea))
+        );
         users.push(alice);
         users.push(bob);
         users.push(carol);
@@ -119,42 +125,60 @@ contract Fixture is Test {
 
     /// @dev Default: IMD sorts below PLEA (IMD is currency0). Orientation tests override this.
     function deployImd() internal virtual {
-        imd = new MockIMD();
+        imd = MockIMD(ArtifactDeployment.deploy("Mocks.sol:MockIMD", bytes("")));
     }
 
     function deployLaunch() internal {
-        plea = new PLEA(OWNER);
-        gate = new CabalGate(
-            address(plea), address(intake), address(oracleFeeToken()), address(imd), SIGNER, SEASON, DEADMAN
+        // Load the configured build's artifacts instead of embedding every application's creation
+        // code into every inherited suite. These are still real CREATE deployments, in order.
+        plea = PLEA(deployCode("PLEA.sol:PLEA", abi.encode(OWNER)));
+        gate = CabalGate(
+            deployCode(
+                "CabalGate.sol:CabalGate",
+                abi.encode(
+                    address(plea), address(intake), address(oracleFeeToken()), address(imd), SIGNER, SEASON, DEADMAN
+                )
+            )
         );
-        seasons = new Seasons(address(plea), address(gate), address(imd));
-        distributor = new PleaDistributor(address(plea), OWNER);
+        seat = MockSeat(ArtifactDeployment.deploy("Mocks.sol:MockSeat", bytes("")));
+        seasons = Seasons(
+            deployCode("Seasons.sol:Seasons", abi.encode(address(plea), address(gate), address(imd), address(seat)))
+        );
+        distributor =
+            PleaDistributor(deployCode("PleaDistributor.sol:PleaDistributor", abi.encode(address(plea), OWNER)));
         MockIMD feeToken = oracleFeeToken();
-        launch = new PleaLaunch(
-            address(plea),
-            address(gate),
-            address(seasons),
-            address(distributor),
-            address(pm),
-            address(imd),
-            address(stacker),
-            creditGasBudget(),
-            T0 + 1 days,
-            address(feeToken),
-            feeToken != imd,
-            keccak256(type(Letterbox).creationCode),
-            withTribunal() ? keccak256(type(Tribunal).creationCode) : bytes32(0)
+        bytes memory letterboxCode = vm.getCode("Letterbox.sol:Letterbox");
+        bytes memory tribunalCode = vm.getCode("Tribunal.sol:Tribunal");
+        launch = PleaLaunch(
+            deployCode(
+                "PleaLaunch.sol:PleaLaunch",
+                abi.encode(
+                    address(plea),
+                    address(gate),
+                    address(seasons),
+                    address(distributor),
+                    address(pm),
+                    address(imd),
+                    address(stacker),
+                    creditGasBudget(),
+                    T0 + 1 days,
+                    address(feeToken),
+                    feeToken != imd,
+                    keccak256(letterboxCode),
+                    withTribunal() ? keccak256(tribunalCode) : bytes32(0)
+                )
+            )
         );
         // After the launch: anyone deploys the committed Letterbox (and the Tribunal, when on).
-        letterbox = Letterbox(launch.deployLetterbox(type(Letterbox).creationCode));
+        letterbox = Letterbox(launch.deployLetterbox(letterboxCode));
         if (withTribunal() && deployTribunalAtLaunch()) {
-            tribunal = Tribunal(launch.deployTribunal(type(Tribunal).creationCode));
+            tribunal = Tribunal(launch.deployTribunal(tribunalCode));
         }
     }
 
     function hookInitCode() internal view returns (bytes memory) {
         return abi.encodePacked(
-            type(PleaHook).creationCode,
+            vm.getCode("PleaHook.sol:PleaHook"),
             abi.encode(
                 address(pm), address(plea), address(imd), address(stacker), OWNER, address(seasons), creditGasBudget()
             )

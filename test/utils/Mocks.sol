@@ -322,3 +322,39 @@ contract MsgSenderRouter {
         return abi.encode(amountOut);
     }
 }
+
+/// @dev A stand-in for the IMD seat NFT (ERC-721 `balanceOf`): `mint` gives a seat, `setBroken`
+/// makes every read revert, `setGreedy` makes it burn all the gas it is given.
+contract MockSeat {
+    mapping(address => uint256) public balanceOf_;
+    bool public broken;
+    bool public greedy;
+
+    function mint(address to) external {
+        balanceOf_[to] += 1;
+    }
+
+    function burn(address from) external {
+        balanceOf_[from] -= 1;
+    }
+
+    function setBroken(bool v) external {
+        broken = v;
+    }
+
+    function setGreedy(bool v) external {
+        greedy = v;
+    }
+
+    function balanceOf(address owner) external view returns (uint256) {
+        if (owner == address(0)) revert("ERC721InvalidOwner");
+        if (broken) revert("broken");
+        if (greedy) {
+            uint256 x;
+            while (true) {
+                x = uint256(keccak256(abi.encode(x)));
+            }
+        }
+        return balanceOf_[owner];
+    }
+}

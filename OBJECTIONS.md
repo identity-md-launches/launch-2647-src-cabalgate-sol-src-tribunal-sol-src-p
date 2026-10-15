@@ -32,7 +32,7 @@ The idea is for fun, not to catch bad approvals (none seen in runs 3 and 4). A c
 ## How it works
 
 1. **Approval.** The Cabal approves plea #7 at 38 against a need of 33. The 7-minute sell window opens as today.
-2. **Objection window.** For 20 minutes after the verdict, anyone except the seller and the PLEA owner may object to plea #7. They write a 1–280 byte objection and pay **0.5 IMD** (oracle fee) + **0.35 IMD** (stake): 0.85 IMD in all, the same as an appeal.
+2. **Objection window.** For 20 minutes after the verdict, anyone except the seller and the wallets Seasons excludes may object to plea #7. They write a 1–280 byte objection and pay **0.5 IMD** (oracle fee) + **0.35 IMD** (stake): 0.85 IMD in all, the same as an appeal.
 3. **One pending objection per plea, at most two rulings.** Nobody else can object while one is pending. An overruled objection does not close the case: while the window is open a *different* wallet may object once more (two rulings per plea at most); a sustain closes it. If the panel gives no answer, the slot frees up again (a void ruling does not count).
 4. **Re-score.** A fresh panel of 30 scores plea #7 from scratch. It sees the original question, the original score and the objection.
 5. **Ruling.**
@@ -61,17 +61,17 @@ No PLEA holding is required: a balance check is beaten with dust.
 - is at most `OBJECTION_WINDOW` (20 min) past its `verdictAt`;
 - is not yet recorded in `Seasons` (this covers pleas recorded before the Tribunal existed);
 - has a seller who can earn points (not excluded);
-- has no pending objection, no sustained ruling, and fewer than two rulings; the second objector must differ from the first. Two rolls at most, so a rich rival cannot re-roll a leader's plea until it falls, and the seller's own "friendly" objection (meant to shield the plea) only costs them 0.85 IMD, can only lower their own points, and still leaves one real slot.
+- has no pending objection, no sustained ruling, and fewer than two rulings; the second objector must differ from the first. Two rolls at most, so a rich rival cannot re-roll a leader's plea until it falls, and the seller's own "friendly" objection (meant to shield the plea) only costs them 0.85 IMD, can only lower their own points, and leaves one slot until a second wallet also obtains a ruling. Two friendly wallets can exhaust both slots; the contracts cannot identify common wallet control.
 
-**Objection text:** the gate's plea text rules, unchanged: 1–280 bytes of well-formed UTF-8, one line, no control, zero-width, bidi, tag or variation-selector characters, no `[PLEA` / `[/PLEA` markers. It also may not contain `[OBJECTION` / `[/OBJECTION` markers (any case).
+**Objection and plea text:** 1–280 bytes of well-formed UTF-8, one line, no control, zero-width, bidi, tag or variation-selector characters, and no `[PLEA` / `[/PLEA` or `[OBJECTION` / `[/OBJECTION` marker prefixes (any case). The gate also rejects objection markers because the Tribunal quotes its question verbatim.
 
 **Sustain rule:** `newScore + 2 < need`, where `need` is the plea's stored need (70 − fact score at submit time), not recomputed. The margin of 2 is the panels' own noise (live scores land within about ±2), so a 33-vs-33 approval is not erased by a coin flip; it must come back as 30 or less.
 
-**Scores only fall:** the recorded score is `min(original, lowest new score)`. Nobody can re-roll upward, every objection has an effect, and a manipulation the first panel missed scores 0 on re-score.
+**Scores only fall:** the recorded score is `min(original, lowest new score)` (run 7: a seller holding an IMD seat NFT at record time earns that score × 1.2 as points, `Seasons.pointsFor`; the score the Tribunal compares with the need is never multiplied). Nobody can re-roll upward, every objection has an effect, and a manipulation the first panel missed scores 0 on re-score.
 
 **Stake lost only when overruled.** On Void (the panel failed to answer) the stake comes back; only the oracle fee is spent, as for a plea with no verdict. Two rulings per plea cap what a sham can achieve.
 
-**The sale:** untouched. `CabalGate` does not change. The 7-minute window, `executeSell`, the Letterbox's `deliver`, cooldowns and fees all work as today.
+**The sale:** untouched. The gate changes only its delimiter validation. The 7-minute window, `executeSell`, the Letterbox's `deliver`, cooldowns and fees all work as today.
 
 **The dead-man:** objection rulings do **not** reset `lastVerdictAt`. Only plea verdicts keep the Cabal alive.
 
@@ -121,7 +121,7 @@ Deployed after launch through `PleaLaunch.deployTribunal`, the same way as the L
 | `intake` | `gate.intake()` |
 | oracle signer | `gate.oracleSigner()` (passed to `OracleAttestationConsumer`) |
 
-On Sepolia the stake is TestIMD (`0x2b69…`) and the fee is the separate test oracle token (`0x44a1…`), so objectors need both. On mainnet both are IMD.
+On Sepolia the stake is TestIMD (`0x2b69…`) and the fee is the separate test oracle token (`0x44a1…`), and the Tribunal mints the oracle fee, so objectors need only the stake token. On mainnet both are IMD.
 
 **Constants**
 
@@ -151,10 +151,17 @@ struct Objection {
 uint256 public nextId = 1;
 mapping(uint256 => Objection) internal objections;   // objection id → objection
 mapping(bytes32 => uint256) public objectionOfIntake;
-mapping(uint256 => uint256) public caseOf;           // plea id → its latest objection id
+struct Case {
+    uint8 count;          // rulings, excluding voids
+    uint8 lowest;         // lowest panel score, not capped to the original here
+    bool sustained;
+    uint64 pendingId;
+    address lastObjector;
+}
+mapping(uint256 => Case) internal cases;             // read with caseOf(pleaId)
 ```
 
-A plea's case is **closed** when `objections[caseOf[pleaId]].ruling` is `Sustained` or `Overruled`. It is **open** when that objection is `Pending`, and **free** when it is `None` or `Void`.
+A case closes after a sustain or two rulings. While the window is open, an overrule leaves another slot if fewer than two panels have ruled. A void frees the pending slot without incrementing the count.
 
 **Functions**
 
@@ -164,17 +171,18 @@ A plea's case is **closed** when `objections[caseOf[pleaId]].ruling` is `Sustain
 | `onOracleResult(intakeId, a, signature)` | the Intake | The same checks as the gate's callback: caller is the Intake, known request, `Pending`, within `PENDING_EXPIRY`, attestation verified and consumed, `chainId == 1`, `panelSize ≥ 30`, `quorum ≥ 17`, `agreed ≥ 17` and `≥ quorum`, score ≤ 45. Stores `newScore` and `Sustained` or `Overruled`. **Stores only: no transfers** (200k callback gas). It does not require `cabalAlive()`. |
 | `onObjectionFailure(intakeId, status, reason, agreed, answered, signature)` | the Intake | Same as the gate's `onPleaFailure`: only a pending objection is moved to `Void`; no value moves. |
 | `expire(id)` | anyone | A pending objection past `PENDING_EXPIRY`, or whose Intake request completed without an answer, becomes `Void`. |
-| `settle(id)` | anyone | Pays a decided objection's stake once: `Sustained` or `Void` → objector; `Overruled` → `Seasons` (transfer, then `seasons.checkpoint()`, as the Letterbox's auto-sell fee does). |
-| `standing(pleaId) → (bool held, bool sustained)` | view | What `Seasons` reads (below). |
+| `settle(id)` | anyone | Pays a decided objection's stake once: `Sustained` or `Void` → objector; `Overruled` → `Seasons` (transfer, then `checkpointObjection(pleaId, STAKE)`, which credits the plea's season, or rollover if closed, and calls `checkpoint` for unrelated donations). |
+| `standing(pleaId) → (bool held, bool sustained, uint8 lowest)` | view | What `Seasons` reads (below). |
 | `question(id)`, `body(id)` | view | The judges' question and the JSON body. |
 | `status(pleaId) → string` | view | One line for explorers: `Plea #7 · objections open until 07:25 UTC`, `· OBJECTION pending`, `· SUSTAINED (29 vs need 33) · no points`, `· OVERRULED (36 vs need 33)`. |
 
-**`standing(pleaId)`**
+**`standing(pleaId)`** — an excluded seller's plea (the launch owner's) is never held: nobody may object to it and Seasons never records it, so `status` says `seller excluded: no points, nothing to object to`.
 
 ```
-if the case is closed:   held = false;  sustained = (ruling == Sustained)
-else:                    held = now <= verdictAt + OBJECTION_WINDOW
-                                || (case objection is Pending and not stale)
+lowest = no rulings ? NO_SCORE : lowest panel score
+if sustained:            held = false; sustained = true
+else if pending, not stale: held = true; sustained = false
+else:                    held = approved && !seasons.excluded(seller) && count < 2 && now <= verdictAt + OBJECTION_WINDOW
                          sustained = false
 ```
 
@@ -215,7 +223,7 @@ function excluded(address w) external view returns (bool) {
 }
 ```
 
-- **Why recording has to wait instead of undoing points:** `Seasons` keeps only each wallet's best three scores and a top-10 table (`_record`). Once a score is folded in, the score it displaced or the wallet it pushed out of the top 10 is gone, so a later sustain could not be reversed cleanly.
+- **Why recording has to wait instead of undoing points:** `Seasons` keeps only each wallet's best three scores and a top-25 table (`_record`). Once a score is folded in, the score it displaced or the wallet it pushed out of the top 25 is gone, so a later sustain could not be reversed cleanly.
 - `_tryRecord` must skip, not revert: `closeSeason`'s list may name pleas of the running season that are still held.
 - The Letterbox already wraps `seasons.record` in `try` (`Letterbox._record`), so `deliver` and `settle` keep working during a hold; the points are simply recorded later.
 
@@ -238,13 +246,13 @@ function predictTribunal() external view returns (address);
 
 ### Unchanged
 
-`CabalGate` (it stays 200 bytes under EIP-170 and needs none of them), `PLEA`, `PleaHook`, `Letterbox`, `PleaDistributor`, `OracleAttestation`.
+The imported run-5 economics, judging definitions, sale paths, dead-man and ownership rules are retained. CabalGate additionally rejects objection marker prefixes; Seasons and Tribunal account settled stakes to the plea's season.
 
 ### Size and gas budget
 
 - **Tribunal runtime:** it carries the definitions (~2.4 KB with the new member), the text validator, the question and body builders and an oracle consumer. It should land well under 24,576 bytes; the Letterbox does more in 21.6 KB.
-- **Launch transaction:** today 15,436,103 gas with headroom, **1,341,113** under the 16,777,216 cap. `Seasons` and `PleaLaunch` grow by a few hundred bytes each. Deploying code costs at least 200 gas per byte, so this fits, but `test/LaunchManifest.t.sol` must be re-run and its numbers updated.
-- **Tribunal callback:** must stay at or below the gate's own verdict callback cost. Add it to the gas pass.
+- **Launch transaction:** the run-5 rehearsal measures 13,223,299 gas including the factory allowance, or **16,132,424** with 22% headroom, leaving **644,792** below the 16,777,216 cap. `test/LaunchManifest.t.sol` asserts that bound.
+- **Tribunal callback:** the full suite measures **83,738 gas**, under the Intake's 200,000-gas stipend. The callback stores only; stake settlement is separate.
 
 ---
 
@@ -284,13 +292,13 @@ Following the repo's layout:
 
 ## Known limits
 
-1. **A sham objection can still cost a rival one of the two slots.** A seller's second wallet could object first with text built to make the panel refuse or split; a void frees the slot, an overrule spends one of the two rulings, and a sham the panel *does* answer can only lower the seller's own points. Watch for it in the test run.
+1. **Two sham objections can exhaust the two ruling slots.** A seller's second wallet could object first with text built to make the panel refuse or split; a void frees the slot, an overrule spends one of the two rulings, and a sham the panel *does* answer can only lower the seller's own points. Watch for it in the test run.
 2. **Re-scoring is noisy.** Approvals just above the need can be sustained by chance. That is the gamble, and the objector pays for the roll.
 3. **Points arrive up to 40 minutes later.** The leaderboard lags by the hold.
-4. **Honest objectors lose the stake on a panel failure,** as pleaders lose the oracle fee today.
+4. **An unanswered panel still spends the oracle fee.** The void stake is returned through `settle`.
 5. **Objection text reaches the judges.** It has the same injection surface as a plea, with the same guards: text rules, markers, the untrusted-text instruction, and the `objection` definition. Calibrated: manipulation inside an objection is ignored; the one lever that worked, an unverifiable factual accusation, is closed by the definition's version 2 (see [What the judges see](#what-the-judges-see)). An honest, well-argued objection still costs a thin plea two or three points, which is the gamble.
-6. **A plea may contain `[OBJECTION]`.** The gate's text rules (deployed code, 200 bytes under the size limit) reject only `[PLEA` markers, so a seller can write a fake objection into the plea itself. It sits inside the `[PLEA]` markers the question points at, and text posing as a message from elsewhere is manipulation under the first panel's rules too, so it costs the seller points before it can confuse anyone. Not worth a gate change.
-7. **An overruled stake lands in the season running when `settle` is called,** through `Seasons.checkpoint`, not necessarily the plea's season (a settle after the season turned feeds the next pot; after a close, the rollover). The IMD stays in the prizes either way.
+6. **Delimiter forgery is refused at the gate.** Both plea and objection validators reject the four marker prefixes, so a seller cannot forge an objection block in a question the Tribunal reuses.
+7. **Stakes require permissionless settlement.** Callbacks store only. Funds remain in the Tribunal until anyone calls `settle`; overruled stakes credit the plea's season even after a boundary. If that pot has already closed, the stake becomes rollover instead of reopening paid prizes. There is no keeper tip.
 8. **Every objection is a re-roll that can only lower the score.** With panels landing within about ±2 of each other, even a merit-free objection lowers the expected recorded score a little (the minimum of two or three draws). The two-ruling cap, the 0.85 IMD price and the stake lost on an overrule are the brakes; the rule was chosen so that no objection is ever pointless.
 
 ---
@@ -298,7 +306,7 @@ Following the repo's layout:
 ## Not included
 
 - **Blocking the sale.** See [Why points, not the sale](#why-points-not-the-sale).
-- **Score changes on overrule ("backfire").** Letting the new score replace the old one either way would let a seller's second wallet pay 0.85 IMD to re-roll an approval that doesn't count toward their best three, with only upside. Dropped. Overruled pleas keep their original score.
+- **Score changes on overrule ("backfire").** Letting the new score replace the old one either way would let a seller's second wallet pay 0.85 IMD to re-roll an approval that doesn't count toward their best three, with only upside. Dropped. Overruled pleas keep the lowest score, capped at their original score.
 - **Objecting by letter.** Letters pay fees in PLEA through the gate's fee swap, which only `submitFor` / `appealFor` can reach. Letter objections would need a gate change.
 - **A defence from the seller.** A short rebuttal shown to the second panel would be fun, but it adds a second text, a second deadline and more delay. Later, if objections catch on.
 - **Rewards beyond the stake.** The motive is knocking rivals down the leaderboard. A prosecutor leaderboard could come later, off chain from `Ruled` events.

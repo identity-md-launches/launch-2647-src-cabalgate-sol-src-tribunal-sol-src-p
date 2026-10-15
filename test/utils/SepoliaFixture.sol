@@ -1,6 +1,8 @@
 // SPDX-License-Identifier: MIT
 pragma solidity 0.8.26;
 
+import {ArtifactDeployment} from "./ArtifactDeployment.sol";
+
 import {Fixture} from "./Fixture.sol";
 import {MockIMD} from "./Mocks.sol";
 
@@ -17,7 +19,7 @@ abstract contract SepoliaFixture is Fixture {
     }
 
     function deployImd() internal override {
-        MockIMD implementation = new MockIMD();
+        MockIMD implementation = MockIMD(ArtifactDeployment.deploy("Mocks.sol:MockIMD", bytes("")));
         address quote = pleaFirst() ? address(type(uint160).max - 100) : address(uint160(1 << 32));
         vm.etch(quote, address(implementation).code);
         imd = MockIMD(quote);

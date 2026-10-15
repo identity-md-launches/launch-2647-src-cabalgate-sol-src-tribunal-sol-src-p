@@ -14,6 +14,14 @@ cbor_metadata = false
 ffi = false
 gas_limit = "1000000000"
 fs_permissions = [{ access = "read", path = "./out" }, { access = "read", path = "./launch.json" }]
+# The whole tree compiles under via_ir as one slow solc job. The default profile leaves the fork
+# rehearsals and the heaviest fuzz/invariant suites out of a bare `forge build` / `forge test`;
+# `FOUNDRY_PROFILE=full` compiles everything (the compiler settings are the same, so the artifacts
+# in ./out are shared). Run the heavy suites one file at a time with --match-path.
+skip = ["test/fork/*", "test/*Invariant.t.sol", "test/*Adversarial.t.sol"]
+
+[profile.full]
+skip = []
 
 [profile.default.fuzz]
 runs = 32

@@ -11,7 +11,7 @@ import {Letterbox} from "../src/Letterbox.sol";
 contract DeployLetterbox is Script {
     function run() external {
         PleaLaunch launch = PleaLaunch(vm.envAddress("LAUNCH"));
-        bytes memory code = type(Letterbox).creationCode;
+        bytes memory code = vm.getCode("Letterbox.sol:Letterbox");
         require(keccak256(code) == launch.letterboxCodeHash(), "creation code differs from the launch's commitment");
         console2.log("Letterbox will be", launch.predictLetterbox());
         vm.startBroadcast();

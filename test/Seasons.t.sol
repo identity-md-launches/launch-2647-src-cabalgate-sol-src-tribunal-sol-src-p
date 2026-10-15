@@ -1,6 +1,8 @@
 // SPDX-License-Identifier: MIT
 pragma solidity 0.8.26;
 
+import {ArtifactDeployment} from "./utils/ArtifactDeployment.sol";
+
 import {Fixture} from "./utils/Fixture.sol";
 import {CabalGate} from "../src/CabalGate.sol";
 import {Seasons} from "../src/Seasons.sol";
@@ -215,13 +217,22 @@ contract SeasonsTest is Fixture {
 
     // ---------------------------------------------------------------- guards
 
-    function test_mainnetGuardRefusesShortTimings() public {
+    function test_constructorAcceptsAnyClockOnChainOne() public {
+        // The agreed mainnet clock is enforced by PleaLaunch.seed (test/MainnetGuard.t.sol), not by
+        // the constructor: IMD's launch rehearsal deploys the manifest on a bare EVM with chain id 1.
         vm.chainId(1);
-        vm.expectRevert(CabalGate.BelowAgreedTiming.selector);
-        new CabalGate(address(plea), address(intake), address(oimd), address(imd), SIGNER, 5 hours, 33 hours);
-        vm.expectRevert(CabalGate.BelowAgreedTiming.selector);
-        new CabalGate(address(plea), address(intake), address(oimd), address(imd), SIGNER, 15 days, 27 minutes);
-        new CabalGate(address(plea), address(intake), address(oimd), address(imd), SIGNER, 15 days, 33 hours);
+        CabalGate fast = CabalGate(
+            ArtifactDeployment.deploy(
+                "CabalGate.sol:CabalGate",
+                abi.encode(address(plea), address(intake), address(oimd), address(imd), SIGNER, 5 hours, 33 hours)
+            )
+        );
+        assertEq(fast.SEASON(), 5 hours);
+        vm.expectRevert(CabalGate.ZeroTiming.selector);
+        ArtifactDeployment.deploy(
+            "CabalGate.sol:CabalGate",
+            abi.encode(address(plea), address(intake), address(oimd), address(imd), SIGNER, 0, 33 hours)
+        );
     }
 }
 

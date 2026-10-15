@@ -11,7 +11,7 @@ import {Tribunal} from "../src/Tribunal.sol";
 contract DeployTribunal is Script {
     function run() external {
         PleaLaunch launch = PleaLaunch(vm.envAddress("LAUNCH"));
-        bytes memory code = type(Tribunal).creationCode;
+        bytes memory code = vm.getCode("Tribunal.sol:Tribunal");
         require(keccak256(code) == launch.tribunalCodeHash(), "creation code differs from the launch's commitment");
         console2.log("Tribunal will be", launch.predictTribunal());
         vm.startBroadcast();

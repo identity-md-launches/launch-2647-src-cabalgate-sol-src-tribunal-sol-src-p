@@ -270,7 +270,15 @@ contract HookRevisionTest is Fixture {
         plea.approve(address(router), type(uint256).max);
         router.sellExactInLimit(50_000_000e18, abi.encode(alice), TickMath.getSqrtPriceAtTick(limitTick));
         vm.stopPrank();
-        assertEq(hook.currentTick(), limitTick, "the sell did not stop at the seller's limit");
+        assertEq(
+            hook.currentSqrtPriceX96(),
+            TickMath.getSqrtPriceAtTick(limitTick),
+            "the sell did not stop at the seller's price limit"
+        );
+        // In the empty region, downward swaps can end on an uninitialized bitmap-word boundary.
+        // v4 Pool.swap then stores tickNext - 1 even though sqrtPrice equals the limit exactly.
+        int24 expectedTick = pz && limitTick % (hook.TICK_SPACING() * 256) == 0 ? limitTick - 1 : limitTick;
+        assertEq(hook.currentTick(), expectedTick, "v4's boundary tick convention");
         assertEq(IPoolManager(address(pm)).getLiquidity(hook.poolId()), 0, "liquidity is active at the limit");
         assertEq(hook.wallGuardTick(), g0, "a drained tick moved the guard");
         vm.roll(vm.getBlockNumber() + 1);
@@ -291,6 +299,12 @@ contract HookRevisionTest is Fixture {
         int256 gap = _pleaPriceTick(hook.currentTick()) - _pleaPriceTick(pz ? hi : lo);
         assertGe(gap, 0, "the wall is above spot");
         assertLt(gap, 1_000, "the wall is not placed against the market");
+    }
+
+    /// @dev Counterexample from the assignment's pinned fuzz seed: a zero-for-one sale stops
+    /// exactly at tick -122880's price, while v4 reports tick -122881. The guard must still stay put.
+    function test_emptyRegionBitmapBoundaryStopsAtTheExactPriceLimit() public {
+        testFuzz_aLimitAnywhereInTheLiquidityFreeRegionNeverMovesTheGuard(2160, 1407002248);
     }
 
     /// @dev The other side of the same condition: a limit the seller stops at inside the liquid market

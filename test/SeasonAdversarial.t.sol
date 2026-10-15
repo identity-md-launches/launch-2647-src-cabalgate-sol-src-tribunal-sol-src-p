@@ -1,6 +1,8 @@
 // SPDX-License-Identifier: MIT
 pragma solidity 0.8.26;
 
+import {ArtifactDeployment} from "./utils/ArtifactDeployment.sol";
+
 import {Test} from "forge-std/Test.sol";
 import {ERC20} from "@openzeppelin/contracts/token/ERC20/ERC20.sol";
 import {PLEA} from "src/PLEA.sol";
@@ -44,11 +46,17 @@ contract SeasonAdversarialTest is Test {
 
     function setUp() public {
         vm.warp(1791817200);
-        token = new PLEA(address(this));
+        token = PLEA(ArtifactDeployment.deploy("PLEA.sol:PLEA", abi.encode(address(this))));
         results = new SeasonResults();
         quote = new SelectivePrizeAsset();
-        seasons = new Seasons(address(token), address(results), address(quote));
-        PleaDistributor drop = new PleaDistributor(address(token), address(this));
+        seasons = Seasons(
+            ArtifactDeployment.deploy(
+                "Seasons.sol:Seasons", abi.encode(address(token), address(results), address(quote), address(0))
+            )
+        );
+        PleaDistributor drop = PleaDistributor(
+            ArtifactDeployment.deploy("PleaDistributor.sol:PleaDistributor", abi.encode(address(token), address(this)))
+        );
         wall = new SeasonWallSink(quote);
         token.setLauncher(address(results), address(seasons), address(drop));
         // Seasons now includes redeemable IMD claims in its assets, so its manager must be live.

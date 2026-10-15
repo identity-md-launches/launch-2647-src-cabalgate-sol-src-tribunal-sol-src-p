@@ -1,6 +1,8 @@
 // SPDX-License-Identifier: MIT
 pragma solidity 0.8.26;
 
+import {ArtifactDeployment} from "./utils/ArtifactDeployment.sol";
+
 import {Fixture} from "./utils/Fixture.sol";
 import {PLEA} from "../src/PLEA.sol";
 
@@ -66,7 +68,7 @@ contract TokenTest is Fixture {
         vm.expectRevert(PLEA.AlreadySet.selector);
         plea.init(alice, alice);
         // A fresh PLEA in a later block cannot be wired by anyone.
-        PLEA p = new PLEA(OWNER);
+        PLEA p = PLEA(ArtifactDeployment.deploy("PLEA.sol:PLEA", abi.encode(OWNER)));
         vm.roll(vm.getBlockNumber() + 1);
         // forge keeps transient storage within a test, so clear the flag as a new transaction would.
         vm.store(address(p), bytes32(0), bytes32(0));

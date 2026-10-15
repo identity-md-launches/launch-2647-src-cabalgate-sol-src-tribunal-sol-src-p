@@ -32,6 +32,7 @@ contract PleaLaunch {
     error HookAlreadyDeployed();
     error HookNotDeployed();
     error TooEarly(uint256 start);
+    error BelowAgreedTiming();
     error LetterboxAlreadyDeployed();
     error LetterboxDeployFailed();
     error TribunalOff();
@@ -178,6 +179,11 @@ contract PleaLaunch {
     function seed() external {
         if (hook == address(0)) revert HookNotDeployed();
         if (msg.sender != owner && block.timestamp < START) revert TooEarly(START);
+        // The agreed mainnet clock, checked on the live chain rather than in CabalGate's constructor:
+        // launch rehearsals deploy the manifest on a bare EVM whose chain id is 1.
+        if (block.chainid == 1 && (IGate(gate).SEASON() < 15 days || IGate(gate).DEADMAN() < 33 hours)) {
+            revert BelowAgreedTiming();
+        }
         opened = true;
         IPleaHook(hook).seed();
         IGate(gate).begin();

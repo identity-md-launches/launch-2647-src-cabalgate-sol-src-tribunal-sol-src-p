@@ -1,6 +1,8 @@
 // SPDX-License-Identifier: MIT
 pragma solidity 0.8.26;
 
+import {ArtifactDeployment} from "../test/utils/ArtifactDeployment.sol";
+
 import {Script, console2} from "forge-std/Script.sol";
 import {PLEA} from "../src/PLEA.sol";
 import {CabalGate} from "../src/CabalGate.sol";
@@ -18,35 +20,54 @@ import {PleaLaunch} from "../src/PleaLaunch.sol";
 contract Deploy is Script {
     function run() external {
         vm.startBroadcast();
-        PLEA plea = new PLEA(vm.envAddress("OWNER"));
-        CabalGate gate = new CabalGate(
-            address(plea),
-            vm.envAddress("INTAKE"),
-            vm.envAddress("ORACLE_ASSET"),
-            vm.envAddress("IMD"),
-            vm.envAddress("ORACLE_SIGNER"),
-            vm.envUint("SEASON"),
-            vm.envUint("DEADMAN")
+        PLEA plea = PLEA(ArtifactDeployment.deploy("PLEA.sol:PLEA", abi.encode(vm.envAddress("OWNER"))));
+        CabalGate gate = CabalGate(
+            ArtifactDeployment.deploy(
+                "CabalGate.sol:CabalGate",
+                abi.encode(
+                    address(plea),
+                    vm.envAddress("INTAKE"),
+                    vm.envAddress("ORACLE_ASSET"),
+                    vm.envAddress("IMD"),
+                    vm.envAddress("ORACLE_SIGNER"),
+                    vm.envUint("SEASON"),
+                    vm.envUint("DEADMAN")
+                )
+            )
         );
-        Seasons seasons = new Seasons(address(plea), address(gate), vm.envAddress("IMD"));
-        PleaDistributor distributor = new PleaDistributor(address(plea), vm.envAddress("OWNER"));
-        PleaLaunch launch = new PleaLaunch(
-            address(plea),
-            address(gate),
-            address(seasons),
-            address(distributor),
-            vm.envAddress("POOL_MANAGER"),
-            vm.envAddress("IMD"),
-            vm.envAddress("STACKER"),
-            vm.envUint("CREDIT_GAS"),
-            vm.envUint("START"),
-            vm.envAddress("ORACLE_ASSET"),
-            vm.envBool("MINT_ORACLE_FEE"),
-            keccak256(type(Letterbox).creationCode),
-            keccak256(type(Tribunal).creationCode)
+        Seasons seasons = Seasons(
+            ArtifactDeployment.deploy(
+                "Seasons.sol:Seasons",
+                abi.encode(address(plea), address(gate), vm.envAddress("IMD"), vm.envOr("SEAT", address(0)))
+            )
         );
-        address letterbox = launch.deployLetterbox(type(Letterbox).creationCode);
-        address tribunal = launch.deployTribunal(type(Tribunal).creationCode);
+        PleaDistributor distributor = PleaDistributor(
+            ArtifactDeployment.deploy(
+                "PleaDistributor.sol:PleaDistributor", abi.encode(address(plea), vm.envAddress("OWNER"))
+            )
+        );
+        PleaLaunch launch = PleaLaunch(
+            ArtifactDeployment.deploy(
+                "PleaLaunch.sol:PleaLaunch",
+                abi.encode(
+                    address(plea),
+                    address(gate),
+                    address(seasons),
+                    address(distributor),
+                    vm.envAddress("POOL_MANAGER"),
+                    vm.envAddress("IMD"),
+                    vm.envAddress("STACKER"),
+                    vm.envUint("CREDIT_GAS"),
+                    vm.envUint("START"),
+                    vm.envAddress("ORACLE_ASSET"),
+                    vm.envBool("MINT_ORACLE_FEE"),
+                    keccak256(vm.getCode("Letterbox.sol:Letterbox")),
+                    keccak256(vm.getCode("Tribunal.sol:Tribunal"))
+                )
+            )
+        );
+        address letterbox = launch.deployLetterbox(vm.getCode("Letterbox.sol:Letterbox"));
+        address tribunal = launch.deployTribunal(vm.getCode("Tribunal.sol:Tribunal"));
         vm.stopBroadcast();
         console2.log("PLEA", address(plea));
         console2.log("CabalGate", address(gate));

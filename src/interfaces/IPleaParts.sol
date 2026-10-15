@@ -52,6 +52,7 @@ interface IGate {
     function startedAt() external view returns (uint64);
     function diedAt() external view returns (uint64);
     function SEASON() external view returns (uint256);
+    function DEADMAN() external view returns (uint256);
     function begin() external;
     function result(uint256 id) external view returns (address seller, uint8 score, bool approved, uint64 verdictAt);
     function pleaText(uint256 id) external view returns (string memory);

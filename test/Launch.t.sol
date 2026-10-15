@@ -1,6 +1,8 @@
 // SPDX-License-Identifier: MIT
 pragma solidity 0.8.26;
 
+import {ArtifactDeployment} from "./utils/ArtifactDeployment.sol";
+
 import {Test} from "forge-std/Test.sol";
 import {PoolManager} from "v4-core/PoolManager.sol";
 import {PLEA} from "../src/PLEA.sol";
@@ -29,36 +31,52 @@ contract LaunchTest is Test {
     function setUp() public {
         vm.chainId(11155111);
         vm.warp(1_800_000_000);
-        pm = new PoolManager(address(this));
-        imd = new MockIMD();
+        pm = PoolManager(ArtifactDeployment.deploy("PoolManager.sol:PoolManager", abi.encode(address(this))));
+        imd = MockIMD(ArtifactDeployment.deploy("Mocks.sol:MockIMD", bytes("")));
     }
 
     function deployAll(address poolManager) internal {
-        MockIntake intake = new MockIntake(imd);
-        plea = new PLEA(OWNER);
-        gate = new CabalGate(address(plea), address(intake), address(imd), address(imd), SIGNER, 5 hours, 27.5 minutes);
-        seasons = new Seasons(address(plea), address(gate), address(imd));
-        PleaDistributor d = new PleaDistributor(address(plea), OWNER);
-        launch = new PleaLaunch(
-            address(plea),
-            address(gate),
-            address(seasons),
-            address(d),
-            poolManager,
-            address(imd),
-            stacker,
-            1_300_000,
-            START,
-            address(imd),
-            false,
-            keccak256(type(Letterbox).creationCode),
-            bytes32(0)
+        MockIntake intake = MockIntake(ArtifactDeployment.deploy("Mocks.sol:MockIntake", abi.encode(imd)));
+        plea = PLEA(ArtifactDeployment.deploy("PLEA.sol:PLEA", abi.encode(OWNER)));
+        gate = CabalGate(
+            ArtifactDeployment.deploy(
+                "CabalGate.sol:CabalGate",
+                abi.encode(address(plea), address(intake), address(imd), address(imd), SIGNER, 5 hours, 27.5 minutes)
+            )
+        );
+        seasons = Seasons(
+            ArtifactDeployment.deploy(
+                "Seasons.sol:Seasons", abi.encode(address(plea), address(gate), address(imd), address(0))
+            )
+        );
+        PleaDistributor d = PleaDistributor(
+            ArtifactDeployment.deploy("PleaDistributor.sol:PleaDistributor", abi.encode(address(plea), OWNER))
+        );
+        launch = PleaLaunch(
+            ArtifactDeployment.deploy(
+                "PleaLaunch.sol:PleaLaunch",
+                abi.encode(
+                    address(plea),
+                    address(gate),
+                    address(seasons),
+                    address(d),
+                    poolManager,
+                    address(imd),
+                    stacker,
+                    1_300_000,
+                    START,
+                    address(imd),
+                    false,
+                    keccak256(vm.getCode("Letterbox.sol:Letterbox")),
+                    bytes32(0)
+                )
+            )
         );
     }
 
     function initCode() internal view returns (bytes memory) {
         return abi.encodePacked(
-            type(PleaHook).creationCode,
+            vm.getCode("PleaHook.sol:PleaHook"),
             abi.encode(address(pm), address(plea), address(imd), stacker, OWNER, address(seasons), uint256(1_300_000))
         );
     }
@@ -78,7 +96,7 @@ contract LaunchTest is Test {
         assertTrue(plea.restricted());
         assertEq(gate.startedAt(), 0);
         assertEq(plea.letterbox(), address(0), "the Letterbox comes after the launch");
-        assertEq(launch.letterboxCodeHash(), keccak256(type(Letterbox).creationCode));
+        assertEq(launch.letterboxCodeHash(), keccak256(vm.getCode("Letterbox.sol:Letterbox")));
     }
 
     function test_deployHookChecksTheInitCodeAndFlags() public {
@@ -130,7 +148,7 @@ contract LaunchTest is Test {
         uint256 g = gasleft();
         deployAll(address(pm));
         uint256 deployGas = g - gasleft();
-        bytes memory lbCode = type(Letterbox).creationCode;
+        bytes memory lbCode = vm.getCode("Letterbox.sol:Letterbox");
         g = gasleft();
         launch.deployLetterbox(lbCode);
         uint256 letterboxGas = g - gasleft();

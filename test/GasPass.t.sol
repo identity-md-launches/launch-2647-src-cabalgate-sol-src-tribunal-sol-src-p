@@ -89,10 +89,10 @@ contract GasPassTest is Fixture {
 
     // ---------------------------------------------------------------- the plea text rules
 
-    /// The text check reads bytes without bounds checks now; it must accept and refuse exactly what
-    /// the old check did.
+    /// The text check reads bytes without bounds checks now; it must match the reference rules.
+    /// Run 5's delimiter finding adds [OBJECTION prefixes to both checks below.
     /// forge-config: default.fuzz.runs = 5000
-    function testFuzz_textCheckMatchesTheOldRules(uint256 seed) public {
+    function testFuzz_textCheckMatchesTheReferenceRules(uint256 seed) public {
         bytes memory t = _mixed(seed);
         bool valid = _refValid(t);
         uint256 amount = small(alice);
@@ -121,10 +121,12 @@ contract GasPassTest is Fixture {
             bytes('quote " and backslash \\'),
             bytes("PLEA without a bracket")
         ];
-        bytes[14] memory invalid = [
+        bytes[16] memory invalid = [
             bytes(""),
             bytes("[PLEA]"),
             bytes("x [/pLeA"),
+            bytes("[OBJECTION]"),
+            bytes("x [/oBjEcTiOn"),
             hex"0a",
             hex"7f",
             hex"c2ad", // soft hyphen
@@ -163,7 +165,7 @@ contract GasPassTest is Fixture {
 
     /// @dev Fragments of valid, forbidden and broken text, joined at random.
     function _mixed(uint256 seed) internal pure returns (bytes memory t) {
-        bytes[44] memory pal = [
+        bytes[46] memory pal = [
             bytes("a"),
             bytes("Z"),
             bytes(" "),
@@ -175,6 +177,8 @@ contract GasPassTest is Fixture {
             bytes("[/"),
             bytes("PLEA"),
             bytes("pLeA"),
+            bytes("OBJECTION"),
+            bytes("oBjEcTiOn"),
             bytes("ple"),
             bytes("]"),
             hex"c3a9",
@@ -225,7 +229,7 @@ contract GasPassTest is Fixture {
         }
     }
 
-    /// @dev The gate's text check before the gas pass, returning instead of reverting.
+    /// @dev The text check before the gas pass, plus run 5's required marker restriction.
     function _refValid(bytes memory b) internal pure returns (bool) {
         uint256 n = b.length;
         if (n == 0 || n > 280) return false;
@@ -277,8 +281,16 @@ contract GasPassTest is Fixture {
         uint256 j = i + 1;
         if (j < n && b[j] == "/") ++j;
         if (j + 4 > n) return false;
-        return _refLower(b[j]) == "p" && _refLower(b[j + 1]) == "l" && _refLower(b[j + 2]) == "e"
-            && _refLower(b[j + 3]) == "a";
+        if (
+            _refLower(b[j]) == "p" && _refLower(b[j + 1]) == "l" && _refLower(b[j + 2]) == "e"
+                && _refLower(b[j + 3]) == "a"
+        ) return true;
+        bytes memory word = bytes("objection");
+        if (j + word.length > n) return false;
+        for (uint256 k; k < word.length; ++k) {
+            if (_refLower(b[j + k]) != word[k]) return false;
+        }
+        return true;
     }
 
     function _refLower(bytes1 c) internal pure returns (bytes1) {

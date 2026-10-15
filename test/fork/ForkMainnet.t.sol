@@ -1,6 +1,8 @@
 // SPDX-License-Identifier: MIT
 pragma solidity 0.8.26;
 
+import {ArtifactDeployment} from "../utils/ArtifactDeployment.sol";
+
 import {Test, console2} from "forge-std/Test.sol";
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import {IERC4626} from "@openzeppelin/contracts/interfaces/IERC4626.sol";
@@ -34,22 +36,44 @@ interface IIntakeV2Mainnet {
     function callbackGas() external view returns (uint256);
 }
 
+/// @dev Stand-in for imd/acc's Stacker until it is deployed on mainnet: the same `credit` (pull the
+/// IMD from the hook, deposit it into the real sIMD vault for the trader).
+contract StackerStandIn {
+    IERC20 public immutable imd;
+    IERC4626 public immutable simd;
+    bool internal approved;
+
+    constructor(IERC20 imd_, IERC4626 simd_) {
+        imd = imd_;
+        simd = simd_;
+    }
+
+    function credit(address trader, uint256 amount) external returns (uint256 shares) {
+        imd.transferFrom(msg.sender, address(this), amount);
+        if (!approved) {
+            imd.approve(address(simd), type(uint256).max);
+            approved = true;
+        }
+        shares = simd.deposit(amount, trader);
+    }
+}
+
 /// Mainnet rehearsal on an Ethereum fork: the seven launch contracts with chain-1 settings (IMD as
 /// the oracle fee and the pool currency, 15-day seasons, credit gas 400k, the Letterbox buying the
 /// oracle fee with PLEA), the hook mined and deployed on the real PoolManager, trading opened, and
 /// every letter outcome driven through the real Intake v2, completed by impersonating its writer as
-/// the oracle plane does, with mainnet's 200k callback gas. Only the oracle signer is a test key; the
-/// buys credit the real imd/acc Stacker (launch #1409), which deposits into the real sIMD.
+/// the oracle plane does, with mainnet's 200k callback gas. Only the oracle signer is a test key, and
+/// imd/acc's Stacker (not deployed on mainnet yet) is a stand-in that deposits into the real sIMD.
 ///
 /// MAINNET_RPC_URL=https://ethereum-rpc.publicnode.com forge test --match-path test/fork/ForkMainnet.t.sol -vv
 contract ForkMainnetTest is Test {
     IIntakeV2Mainnet constant INTAKE = IIntakeV2Mainnet(0xa43e6F75ee006411F79Ac1C84120606C2330DE82);
     address constant WRITER = 0x3d3C0Df7C1a17d384545e9D7C8228897bD9625CB;
     IERC20 constant IMD = IERC20(0xD34a99Bc0f67aE1bbd63C660e6d0b0dd03E263B7);
+    /// @dev The IMD seat NFT (identity.md) on Ethereum, read by Seasons for the points multiplier.
+    address constant SEAT = 0x0000eC93127BAA929E58E97dd0095A2BFb38ec1D;
     IERC4626 constant SIMD = IERC4626(0x9Efa934D9fAd4AE28c998a40195646b965a97247);
     address constant POOL_MANAGER = 0x000000000004444c5dc75cB358380D2e3dE08A90;
-    /// @dev imd/acc's mainnet Stacker (launch #1409).
-    address constant STACKER = 0x06909F672301F28A810f78cfe7a754851269F4F0;
     bytes32 constant ACTION = "oracle.request@oracle-1";
     uint256 constant SEASON = 15 days;
     uint256 constant DEADMAN = 118_800;
@@ -64,6 +88,7 @@ contract ForkMainnetTest is Test {
     PleaLaunch launch;
     PleaHook hook;
     BuyRouter router;
+    StackerStandIn stacker;
     address owner = makeAddr("owner");
     address runner = makeAddr("runner");
     address[] w;
@@ -77,11 +102,16 @@ contract ForkMainnetTest is Test {
         }
         vm.createSelectFork(rpc);
         assertEq(block.chainid, 1);
+        stacker = new StackerStandIn(IMD, SIMD);
         _deploy();
         _deployHook();
         vm.prank(owner);
         launch.seed();
-        router = new BuyRouter(IPoolManager(POOL_MANAGER), hook, IMD, IERC20(address(plea)));
+        router = BuyRouter(
+            ArtifactDeployment.deploy(
+                "Mocks.sol:BuyRouter", abi.encode(IPoolManager(POOL_MANAGER), hook, IMD, IERC20(address(plea)))
+            )
+        );
         for (uint256 i; i < 3; ++i) {
             address a = makeAddr(string.concat("m", vm.toString(i)));
             w.push(a);
@@ -100,35 +130,51 @@ contract ForkMainnetTest is Test {
     }
 
     function _deploy() internal {
-        plea = new PLEA(owner);
-        gate = new CabalGate(
-            address(plea), address(INTAKE), address(IMD), address(IMD), vm.addr(SIGNER_KEY), SEASON, DEADMAN
+        plea = PLEA(ArtifactDeployment.deploy("PLEA.sol:PLEA", abi.encode(owner)));
+        gate = CabalGate(
+            ArtifactDeployment.deploy(
+                "CabalGate.sol:CabalGate",
+                abi.encode(
+                    address(plea), address(INTAKE), address(IMD), address(IMD), vm.addr(SIGNER_KEY), SEASON, DEADMAN
+                )
+            )
         );
-        seasons = new Seasons(address(plea), address(gate), address(IMD));
-        PleaDistributor distributor = new PleaDistributor(address(plea), owner);
-        launch = new PleaLaunch(
-            address(plea),
-            address(gate),
-            address(seasons),
-            address(distributor),
-            POOL_MANAGER,
-            address(IMD),
-            STACKER,
-            CREDIT_GAS,
-            block.timestamp + 7 days,
-            address(IMD),
-            false,
-            keccak256(type(Letterbox).creationCode),
-            keccak256(type(Tribunal).creationCode)
+        seasons = Seasons(
+            ArtifactDeployment.deploy(
+                "Seasons.sol:Seasons", abi.encode(address(plea), address(gate), address(IMD), SEAT)
+            )
+        );
+        PleaDistributor distributor = PleaDistributor(
+            ArtifactDeployment.deploy("PleaDistributor.sol:PleaDistributor", abi.encode(address(plea), owner))
+        );
+        launch = PleaLaunch(
+            ArtifactDeployment.deploy(
+                "PleaLaunch.sol:PleaLaunch",
+                abi.encode(
+                    address(plea),
+                    address(gate),
+                    address(seasons),
+                    address(distributor),
+                    POOL_MANAGER,
+                    address(IMD),
+                    address(stacker),
+                    CREDIT_GAS,
+                    block.timestamp + 7 days,
+                    address(IMD),
+                    false,
+                    keccak256(vm.getCode("Letterbox.sol:Letterbox")),
+                    keccak256(vm.getCode("Tribunal.sol:Tribunal"))
+                )
+            )
         );
         // After the launch transaction: anyone deploys the committed Letterbox.
-        letterbox = Letterbox(launch.deployLetterbox(type(Letterbox).creationCode));
+        letterbox = Letterbox(launch.deployLetterbox(vm.getCode("Letterbox.sol:Letterbox")));
     }
 
     function _deployHook() internal {
         bytes memory code = abi.encodePacked(
-            type(PleaHook).creationCode,
-            abi.encode(POOL_MANAGER, address(plea), address(IMD), STACKER, owner, address(seasons), CREDIT_GAS)
+            vm.getCode("PleaHook.sol:PleaHook"),
+            abi.encode(POOL_MANAGER, address(plea), address(IMD), address(stacker), owner, address(seasons), CREDIT_GAS)
         );
         assertEq(keccak256(code), launch.hookInitCodeHash());
         uint160 flags = launch.FLAGS();
@@ -250,7 +296,7 @@ contract ForkMainnetTest is Test {
         _buy(a, 50e18);
         console2.log("gas: buy (repeat)", g - gasleft());
         assertGt(SIMD.balanceOf(a), shares);
-        assertEq(IMD.allowance(address(hook), STACKER), 0, "exact approval per credit");
+        assertEq(IMD.allowance(address(hook), address(stacker)), 0, "exact approval per credit");
     }
 
     /// A raw letter on mainnet: the gate sells the writer's PLEA for exactly 0.75 IMD, pays the real
@@ -281,7 +327,7 @@ contract ForkMainnetTest is Test {
         uint256 out = letterbox.deliver(id);
         console2.log("gas: deliver", g - gasleft());
         assertEq(IMD.balanceOf(a) - imdBefore, out);
-        assertGe((out + 0.35e18) * 10_000, _spotValue(p.amount) * 9_500, "at least 95% of spot before the fee");
+        assertGe(out * 10_000, _spotValue(p.amount) * 9_500, "at least 95% of spot, no auto-sell fee on a letter");
         assertEq(IMD.balanceOf(runner), TIP);
         assertTrue(seasons.recorded(id));
         assertEq(plea.balanceOf(address(letterbox)), 0);

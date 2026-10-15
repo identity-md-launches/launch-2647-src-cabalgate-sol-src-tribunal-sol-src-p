@@ -18,10 +18,10 @@ contract HookTest is Fixture {
         uint256 claimsBefore = hook.retainClaims();
         uint256 supplyBefore = plea.totalSupply();
         uint256 amt = 100e18;
-        uint256 fill = amt - amt * 150 / 10_150;
+        uint256 fill = amt - amt * 175 / 10_175;
         buy(alice, 100e18);
         uint256 cashback = fill * 50 / 10_000;
-        assertApproxEqAbs(imd.balanceOf(OWNER) - ownerBefore, cashback, 1);
+        assertApproxEqAbs(imd.balanceOf(OWNER) - ownerBefore, fill * 75 / 10_000, 1);
         assertApproxEqAbs(imd.balanceOf(address(seasons)) - prizeBefore, fill * 25 / 10_000, 1);
         assertApproxEqAbs(hook.retainClaims() - claimsBefore, fill * 25 / 10_000, 2);
         assertApproxEqAbs(simd.byProject(alice, address(hook)), cashback, 1); // stacked as sIMD
@@ -62,7 +62,7 @@ contract HookTest is Fixture {
         buy(alice, 10e18);
         assertEq(simd.balanceOf(alice), 0);
         uint256 amt = 10e18;
-        uint256 fill = amt - amt * 150 / 10_150;
+        uint256 fill = amt - amt * 175 / 10_175;
         assertApproxEqAbs(imd.balanceOf(alice), before - 10e18 + fill * 50 / 10_000, 1);
     }
 
@@ -265,9 +265,10 @@ contract HookTest is Fixture {
         assertEq(_pleaPriceTick(hook.wallGuardTick()), _pleaPriceTick(pz ? spot1 : spot1 + 1));
     }
 
-    function test_capDecayIsSetSoTheFloorIsReachableIn25Days() public view {
+    function test_capDecayIsSetSoTheFloorIsReachableIn15Days() public view {
         uint256 cap = hook.inventoryCap();
-        assertEq(hook.capDecayPerDay(), (cap - hook.CAP_FLOOR()) / 25);
+        assertEq(hook.CAP_DECAY_DAYS(), 15);
+        assertEq(hook.capDecayPerDay(), (cap - hook.CAP_FLOOR()) / 15);
     }
 
     function test_capFollowsBuysAtMostOneDayOfDecayPerDay() public {
