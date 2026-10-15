@@ -312,7 +312,9 @@ contract HookRevisionTest is Fixture {
     /// the market) follows it to exactly that tick.
     function testFuzz_aLimitInsideTheLiquidMarketBandMovesTheGuardToTheStopTick(uint256 depth) public {
         depth = bound(depth, 1, 800);
-        buy(alice, 300e18);
+        // 300 IMD on the Sepolia seed (5,700 IMD); the same share of the curve on a larger seed, so the
+        // seller's bag still reaches 800 ticks.
+        buy(alice, 300e18 * hook.MARKET_CAP_IMD() / 5_700e18);
         for (uint256 i; i < 8; ++i) {
             vm.roll(vm.getBlockNumber() + 1);
             skip(1 days);
