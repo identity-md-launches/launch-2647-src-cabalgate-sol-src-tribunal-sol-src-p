@@ -356,7 +356,7 @@ contract AuditRun3Test is Fixture {
         uint64 target = uint64(block.timestamp / 1 hours) - 24;
         uint64 bestL;
         uint64 bestA;
-        for (uint256 i; i < 25; ++i) {
+        for (uint256 i; i < 48; ++i) {
             (uint64 hour, uint256 p) = hook.ring(i);
             if (p == 0) continue;
             if (hour >= bestL) (bestL, latest) = (hour, p);

@@ -2,7 +2,7 @@
 pragma solidity 0.8.26;
 
 import {Fixture} from "./utils/Fixture.sol";
-import {PleaIsZeroFixture} from "./Orientation.t.sol";
+import {PleaIsZeroFixture, ImdIsZeroFixture} from "./Orientation.t.sol";
 import {PleaHook} from "../src/PleaHook.sol";
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import {IPoolManager} from "v4-core/interfaces/IPoolManager.sol";
@@ -395,5 +395,12 @@ contract HookRevisionTest is Fixture {
 contract HookRevisionPleaIsZeroTest is PleaIsZeroFixture, HookRevisionTest {
     function deployImd() internal override(Fixture, PleaIsZeroFixture) {
         PleaIsZeroFixture.deployImd();
+    }
+}
+
+/// @dev The same revision tests with IMD as currency0 (round-3 audit R3-A3-2).
+contract HookRevisionImdIsZeroTest is ImdIsZeroFixture, HookRevisionTest {
+    function deployImd() internal override(Fixture, ImdIsZeroFixture) {
+        ImdIsZeroFixture.deployImd();
     }
 }

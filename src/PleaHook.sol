@@ -86,7 +86,8 @@ contract PleaHook {
     uint256 public constant MARKET_CAP_IMD = 14_000e18;
     uint256 public constant CAP_FLOOR = 900_000e18;
     /// @notice The cap may travel from the seeded inventory down to `CAP_FLOOR` in this long at the
-    /// fastest; the daily allowance is fixed at seed (`capDecayPerDay`). It only ever follows buys.
+    /// fastest; the daily allowance is fixed at seed (`capDecayPerDay`). It only ever ratchets down,
+    /// following the market's holdings on buys and on sells that leave the market under the cap.
     uint256 public constant CAP_DECAY_DAYS = 15;
     uint256 public constant MIN_TRIM = 1e18;
     uint256 public constant WALL_THRESHOLD = 1e18; // retained IMD worth a rebalance
@@ -182,11 +183,14 @@ contract PleaHook {
     /// @notice IMD the current wall was deployed with (what it has spent so far is `wallImd - imdInWall`).
     uint256 public wallImd;
     bool private callbackExpected;
-    /// @dev The hour of the newest checkpoint, so `latestPrice` reads one ring entry, not all 25.
+    /// @dev The hour of the newest checkpoint, so `latestPrice` reads one ring entry, not all 48.
     uint64 private lastCheckpointHour;
 
     mapping(address => Basis) public basisOf;
-    Checkpoint[25] public ring;
+    /// @dev Two days of hourly slots: the current hour's write can evict only the slot of 48 hours
+    /// ago, so a day-old reference survives up to 23 quiet hours (round-3 audit R3-A1-1).
+    uint256 private constant RING = 48;
+    Checkpoint[RING] public ring;
 
     constructor(
         IPoolManager poolManager_,
@@ -270,10 +274,10 @@ contract PleaHook {
     function latestPrice() public view returns (uint256 best) {
         // The newest checkpoint is the one `_checkpoint` wrote last (hours only grow); scan the ring
         // only in the corner case where its price rounded to zero.
-        best = ring[lastCheckpointHour % 25].priceX96;
+        best = ring[lastCheckpointHour % RING].priceX96;
         if (best != 0) return best;
         uint64 bestHour;
-        for (uint256 i; i < 25; ++i) {
+        for (uint256 i; i < RING; ++i) {
             Checkpoint memory c = ring[i];
             if (c.priceX96 != 0 && c.hour >= bestHour) {
                 bestHour = c.hour;
@@ -286,10 +290,10 @@ contract PleaHook {
     function price24hAgo() public view returns (uint256 best) {
         uint64 target = uint64(block.timestamp / 1 hours) - 24;
         // A checkpoint from exactly that hour is the answer; otherwise scan the ring.
-        Checkpoint storage t = ring[target % 25];
+        Checkpoint storage t = ring[target % RING];
         if (t.hour == target && t.priceX96 != 0) return t.priceX96;
         uint64 bestHour;
-        for (uint256 i; i < 25; ++i) {
+        for (uint256 i; i < RING; ++i) {
             Checkpoint memory c = ring[i];
             if (c.priceX96 != 0 && c.hour <= target && c.hour >= bestHour) {
                 bestHour = c.hour;
@@ -537,7 +541,7 @@ contract PleaHook {
             pleaAmt = specAmt;
             ret = int128(int256(imdFee));
         }
-        uint256 cashback = _payFees(trader, buy, imdBasis, imdFee, pleaFee);
+        uint256 cashback = _payFees(trader, buy, imdBasis, imdFee, pleaFee, priceBefore);
         if (trader != address(0)) {
             _updateBasis(trader, buy, imdBasis + imdFee, buy ? pleaAmt - pleaFee : pleaAmt + pleaFee);
         }
@@ -554,12 +558,15 @@ contract PleaHook {
     }
 
     /// @dev Pays the fee deltas the hook holds, in this swap: PLEA burned; IMD to the owner, the prize
-    /// pot and the hook (for cashback); the pool share kept as claims for the wall. While the
-    /// PoolManager holds under `PAYOUT_RESERVE` of IMD, a buy's unfunded payouts join liquidity. Later
-    /// shortages pay ERC-6909 IMD claims to the same beneficiaries, redeemable once the swapper
-    /// settles its input.
+    /// pot and the hook (for cashback); the pool share kept as claims for the wall. The payouts are
+    /// taken from the PoolManager, which holds the swapper's input only after this call, so they are
+    /// measured against this pool's own IMD before the swap (the market band, the wall, the hook's
+    /// claims), which no unlocker can move: while that is under `PAYOUT_RESERVE`, a buy's unfunded
+    /// payouts join liquidity; a later shortage pays ERC-6909 IMD claims to the same beneficiaries.
+    /// The PoolManager's balance alone is never trusted: a router that flash-takes it inside its
+    /// unlock only makes its own swap revert at the take.
     /// @return cashback IMD now held by the hook for the trader.
-    function _payFees(address trader, bool buy, uint256 imdBasis, uint256 imdFee, uint256 pleaFee)
+    function _payFees(address trader, bool buy, uint256 imdBasis, uint256 imdFee, uint256 pleaFee, uint160 priceBefore)
         internal
         returns (uint256 cashback)
     {
@@ -576,12 +583,16 @@ contract PleaHook {
             // No seasons after the Cabal dies: the prize share joins pool liquidity.
             if (_alive()) toPrize = imdBasis * PRIZE_BPS / BPS;
             uint256 out = cashback + toOwner + toPrize;
-            uint256 pmImd = imd.balanceOf(address(poolManager));
-            bool asClaims = pmImd < out;
-            // The opening buys: while the PoolManager holds under PAYOUT_RESERVE of IMD (the swapper's
-            // input settles after this), a buy's unfunded payouts join pool liquidity. No flag: a dust
-            // buy, whatever its fee, cannot use the exception up for the buy that follows it.
-            if (asClaims && buy && pmImd < PAYOUT_RESERVE) {
+            // A real shortage needs both: the PoolManager cannot pay (the swapper's input settles
+            // after this) and this pool's own IMD before the swap could not have paid either. A router
+            // that flash-takes the PoolManager inside its unlock fails the second test, so its own
+            // swap reverts at the take below instead of reaching the exception or the claims.
+            uint256 own = _imdIn(market, priceBefore) + _imdIn(wall, priceBefore) + retainClaims;
+            bool asClaims = own < out && imd.balanceOf(address(poolManager)) < out;
+            // The opening buys: while the pool's own IMD is under PAYOUT_RESERVE, a buy's unfunded
+            // payouts join pool liquidity. No flag: a dust buy, whatever its fee, cannot use the
+            // exception up for the buy that follows it.
+            if (asClaims && buy && own < PAYOUT_RESERVE) {
                 emit PayoutsToPool(out);
                 (cashback, toOwner, toPrize, out) = (0, 0, 0, 0);
             }
@@ -679,8 +690,10 @@ contract PleaHook {
         }
     }
 
-    /// @dev `grossImd` is what the trader paid or received in IMD including fees; `pleaMoved` is the
-    /// PLEA the trader received (buy) or gave up including the burn fee (sell).
+    /// @dev `grossImd` is what the trader paid in IMD including fees on a buy; on a sell it is the
+    /// pool's gross output plus the fee, which the sell branch does not read (it only scales the basis
+    /// down; the seller received `imdBasis - imdFee`), so do not read it there without recomputing.
+    /// `pleaMoved` is the PLEA the trader received (buy) or gave up including the burn fee (sell).
     function _updateBasis(address trader, bool buy, uint256 grossImd, uint256 pleaMoved) internal {
         Basis storage b = basisOf[trader];
         if (buy) {
@@ -1004,7 +1017,7 @@ contract PleaHook {
 
     function _checkpoint(uint160 sqrtP) internal {
         uint64 hour = uint64(block.timestamp / 1 hours);
-        Checkpoint storage c = ring[hour % 25];
+        Checkpoint storage c = ring[hour % RING];
         if (c.hour != hour) {
             uint256 p = _priceX96(sqrtP);
             c.hour = hour;

@@ -318,7 +318,7 @@ contract GasPassTest is Fixture {
 
     function _scanLatest() internal view returns (uint256 best) {
         uint64 bestHour;
-        for (uint256 i; i < 25; ++i) {
+        for (uint256 i; i < 48; ++i) {
             (uint64 hour, uint256 p) = hook.ring(i);
             if (p != 0 && hour >= bestHour) {
                 bestHour = hour;
@@ -330,7 +330,7 @@ contract GasPassTest is Fixture {
     function _scan24h() internal view returns (uint256 best) {
         uint64 target = uint64(block.timestamp / 1 hours) - 24;
         uint64 bestHour;
-        for (uint256 i; i < 25; ++i) {
+        for (uint256 i; i < 48; ++i) {
             (uint64 hour, uint256 p) = hook.ring(i);
             if (p != 0 && hour <= target && hour >= bestHour) {
                 bestHour = hour;

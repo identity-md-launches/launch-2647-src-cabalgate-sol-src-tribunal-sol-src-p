@@ -13,12 +13,17 @@ import {Letterbox} from "../src/Letterbox.sol";
 import {PleaHook} from "../src/PleaHook.sol";
 import {PleaLaunch} from "../src/PleaLaunch.sol";
 import {PleaDistributor} from "../src/PleaDistributor.sol";
+import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
+import {PoolKey} from "v4-core/types/PoolKey.sol";
+import {SwapParams} from "v4-core/types/PoolOperation.sol";
+import {BalanceDelta} from "v4-core/types/BalanceDelta.sol";
+import {Currency} from "v4-core/types/Currency.sol";
 
 /// Swarm audit round 1 (jobs 945bd652 / 9241c499 / eeff38ef at cd88136): the fixes, one test each.
 contract AuditRound1Test is Fixture {
     using StateLibrary for IPoolManager;
 
-    function withTribunal() internal pure override returns (bool) {
+    function withTribunal() internal pure virtual override returns (bool) {
         return true;
     }
 
@@ -110,6 +115,68 @@ contract AuditRound1Test is Fixture {
         int24 near = pz ? hi : lo;
         // The wall sits against the market band, not thousands of ticks below it.
         assertTrue(pz ? near > limitTick + 3000 : near < limitTick - 3000, "the wall followed the drained tick");
+    }
+
+    /// R3-A3-1 (High): a router that flash-takes the PoolManager's IMD inside its unlock must not be
+    /// able to force the opening exception (payouts to the pool) or the claims path for its own buy.
+    /// The hook measures the pool's own IMD, so the drained take simply fails and the swap reverts.
+    function test_aFlashTakenPoolManagerCannotStripThePayouts() public {
+        buy(alice, 2_000e18);
+        skip(2 hours);
+        FlashTakeRouter ft = new FlashTakeRouter(IPoolManager(address(pm)), hook, imd, plea);
+        imd.mint(bob, 2_000e18);
+        vm.startPrank(bob);
+        imd.approve(address(ft), type(uint256).max);
+        vm.expectRevert();
+        ft.buyWithFlashTake(1_000e18, abi.encode(bob), true);
+        // The same router without the take works: the revert above is the hook's take, not the router.
+        ft.buyWithFlashTake(10e18, abi.encode(bob), false);
+        vm.stopPrank();
+        // The same buy without the take pays the owner, the pot and the cashback as usual.
+        uint256 ownerBefore = imd.balanceOf(OWNER);
+        uint256 potBefore = imd.balanceOf(address(seasons));
+        buy(bob, 1_000e18);
+        assertGt(imd.balanceOf(OWNER) - ownerBefore, 7e18, "the owner's 0.75%");
+        assertGt(imd.balanceOf(address(seasons)) - potBefore, 2e18, "the pot's 0.25%");
+        assertGt(simd.byProject(bob, address(hook)), 4e18, "the cashback");
+    }
+
+    /// R3-A1-1 (Medium): with the day-old reference in the slot the current hour would overwrite, a
+    /// dust trade before the plea turned a down trend (0) into "no history" (5). The 48-slot ring keeps
+    /// the reference through the current hour.
+    function test_aDustTradeInTheCurrentHourDoesNotEvictTheDayOldReference() public {
+        buy(alice, 50e18);
+        uint256 h0 = vm.getBlockTimestamp() / 1 hours;
+        // A checkpoint in every hour h0 + 2 .. h0 + 24, none in h0 + 1. Pleading in hour h0 + 25 looks
+        // for h0 + 1, finds nothing, and must fall back to h0's checkpoint; with 25 slots the current
+        // hour's first trade had just overwritten that slot ((h0 + 25) % 25 == h0 % 25).
+        for (uint256 i = 2; i <= 24; ++i) {
+            vm.warp((h0 + i) * 1 hours + 60);
+            buy(bob, 1e18);
+        }
+        vm.warp((h0 + 25) * 1 hours + 60);
+        buy(carol, 1e18); // the current hour's first trade
+        assertGt(hook.price24hAgo(), 0, "the day-old reference was evicted");
+        assertEq(hook.price24hAgo(), _ringPrice(h0), "the reference is h0's checkpoint");
+    }
+
+    function _ringPrice(uint256 hour) internal view returns (uint256 p) {
+        (, p) = hook.ring(hour % 48);
+    }
+
+    /// R3-A2-2: a pending letter whose verdict can no longer arrive tells the writer to settle.
+    function test_aStalePendingLetterSaysToSettle() public {
+        buy(alice, 20e18);
+        skip(1 days);
+        buy(bob, 1e18);
+        uint256 id = _letter(alice, "Fifteen percent for the dentist; the rest stays all season.");
+        string memory s = letterbox.status(alice);
+        assertTrue(vm.contains(s, "PENDING"), s);
+        assertFalse(vm.contains(s, "call settle"), s);
+        skip(gate.PENDING_EXPIRY() + 1);
+        s = letterbox.status(alice);
+        assertTrue(vm.contains(s, "no verdict can come now: call settle"), s);
+        letterbox.settle(id);
     }
 
     /// R2-A3-2: after the death, zero-fill swaps inside the liquidity-free region (a 1-wei buy with a
@@ -304,5 +371,81 @@ contract AuditRound1MainnetAppealTest is Fixture {
         uint256 a = gate.lastPleaOf(alice);
         assertTrue(gate.getPlea(a).isAppeal);
         assertEq(gate.getPlea(a).originalId, id);
+    }
+
+    /// R3-A2-1: an appeal letter whose fees pass the original-amount exception must still fit the
+    /// balance with its escrow (the retry after a first appeal's fee sale), refused as FeeTooHigh
+    /// rather than a raw token error. Mainnet fee path: an appeal buys 1.1 IMD of fees.
+    function test_anAppealWhoseFeesDoNotFitTheBalanceIsRefusedAsFeeTooHigh() public {
+        buy(bob, 50e18);
+        address w = makeAddr("smallWriter");
+        fund(w);
+        buy(w, 3e18);
+        holdAWeek(bob); // a week at a loss (no newer checkpoint): a 50% plea needs 43
+        uint256 bal = plea.balanceOf(w);
+        vm.prank(w);
+        uint256 id = gate.submitSell(bal / 2, "Half for the move; the rest stays.");
+        assertTrue(answer(id, 0), "verdict");
+        vm.prank(w);
+        (bool ok,) = address(letterbox).call(bytes("APPEAL The move will not wait; I keep the rest."));
+        assertTrue(ok, "the first appeal fits: escrow + fees <= balance");
+        uint256 a = gate.lastPleaOf(w);
+        skip(gate.PENDING_EXPIRY() + 1); // no verdict: the appeal may be sent again
+        letterbox.settle(a);
+        uint256 left = plea.balanceOf(w);
+        (, uint256 maxFeePlea) = letterbox.feesFor(true);
+        assertGt(left / 2 + maxFeePlea, left, "setup: the retry no longer fits");
+        vm.prank(w);
+        bytes memory ret;
+        (ok, ret) = address(letterbox).call(bytes("APPEAL The move will not wait; I keep the rest."));
+        assertFalse(ok);
+        assertEq(bytes4(ret), Letterbox.FeeTooHigh.selector, "refused as FeeTooHigh, not a token error");
+    }
+}
+
+/// @dev A router that takes every IMD the PoolManager holds before its swap and repays it after
+/// (v4 flash accounting), the round-3 audit's lever against a balance-based exception.
+contract FlashTakeRouter {
+    IPoolManager public pm;
+    PleaHook public hook;
+    IERC20 public imd;
+    IERC20 public plea;
+
+    constructor(IPoolManager pm_, PleaHook hook_, IERC20 imd_, IERC20 plea_) {
+        pm = pm_;
+        hook = hook_;
+        imd = imd_;
+        plea = plea_;
+    }
+
+    function buyWithFlashTake(uint256 imdIn, bytes memory hookData, bool takeAll) external {
+        pm.unlock(abi.encode(msg.sender, imdIn, hookData, takeAll));
+    }
+
+    function unlockCallback(bytes calldata raw) external returns (bytes memory) {
+        require(msg.sender == address(pm), "pm");
+        (address payer, uint256 imdIn, bytes memory hookData, bool takeAll) =
+            abi.decode(raw, (address, uint256, bytes, bool));
+        uint256 drained = takeAll ? imd.balanceOf(address(pm)) : 0;
+        if (drained != 0) pm.take(Currency.wrap(address(imd)), address(this), drained);
+        PoolKey memory key = hook.poolKey();
+        bool pleaIsZero = hook.pleaIsZero();
+        bool zeroForOne = !pleaIsZero;
+        BalanceDelta d = pm.swap(
+            key,
+            SwapParams({
+                zeroForOne: zeroForOne,
+                amountSpecified: -int256(imdIn),
+                sqrtPriceLimitX96: zeroForOne ? TickMath.MIN_SQRT_PRICE + 1 : TickMath.MAX_SQRT_PRICE - 1
+            }),
+            hookData
+        );
+        int128 imdDelta = pleaIsZero ? d.amount1() : d.amount0();
+        uint256 amountIn = uint256(uint128(-imdDelta));
+        pm.sync(Currency.wrap(address(imd)));
+        imd.transferFrom(payer, address(pm), amountIn);
+        if (drained != 0) imd.transfer(address(pm), drained);
+        pm.settle();
+        return "";
     }
 }

@@ -348,6 +348,8 @@ contract Letterbox is ReentrancyGuardTransient {
         if (maxFeePlea * BPS > bal * MAX_FEE_SHARE_BPS && maxFeePlea > originalAmount) {
             revert FeeTooHigh(maxFeePlea, bal);
         }
+        // The exception admits fees above 10%; the escrow and the fees must still fit the balance.
+        if (amount + maxFeePlea > bal) revert FeeTooHigh(maxFeePlea, bal);
         plea.courtTake(writer, amount + maxFeePlea);
         _approveGate(maxFeePlea, true);
         uint256 feePlea;
@@ -534,7 +536,11 @@ contract Letterbox is ReentrancyGuardTransient {
         CabalGate.Status s = p.status;
         if (s == CabalGate.Status.Pending) {
             return string.concat(
-                head, unicode"PENDING · asked ", Strings.toString((block.timestamp - p.submittedAt) / 60), "m ago"
+                head,
+                unicode"PENDING · asked ",
+                Strings.toString((block.timestamp - p.submittedAt) / 60),
+                "m ago",
+                _settleable(id) ? unicode" · no verdict can come now: call settle to get your PLEA back" : ""
             );
         }
         bool lapsed = s == CabalGate.Status.Lapsed
