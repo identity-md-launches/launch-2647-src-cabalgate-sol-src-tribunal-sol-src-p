@@ -18,6 +18,10 @@ import {PoolKey} from "v4-core/types/PoolKey.sol";
 import {SwapParams} from "v4-core/types/PoolOperation.sol";
 import {BalanceDelta} from "v4-core/types/BalanceDelta.sol";
 import {Currency} from "v4-core/types/Currency.sol";
+import {IHooks} from "v4-core/interfaces/IHooks.sol";
+import {Hooks} from "v4-core/libraries/Hooks.sol";
+import {CustomRevert} from "v4-core/libraries/CustomRevert.sol";
+import {MockStacker} from "./utils/Mocks.sol";
 
 /// Swarm audit round 1 (jobs 945bd652 / 9241c499 / eeff38ef at cd88136): the fixes, one test each.
 contract AuditRound1Test is Fixture {
@@ -310,9 +314,107 @@ contract AuditRound1Test is Fixture {
         vm.expectRevert(PleaDistributor.ZeroRoot.selector);
         distributor.setMerkleRoot(bytes32(0));
     }
+    // ---------------------------------------------------------------- round 4
+
+    /// R4-A1-1: the trend reference is the newest older checkpoint within two days; one that only
+    /// survived in a quiet ring reads as "no history".
+    function test_aCheckpointOlderThanTwoDaysIsNoDayOldReference() public {
+        buy(alice, 50e18);
+        uint256 h0 = vm.getBlockTimestamp() / 1 hours;
+        vm.warp((h0 + 60) * 1 hours + 60);
+        buy(bob, 1e18); // the first trade in 60 hours
+        assertGt(_ringPrice(h0), 0, "setup: h0's checkpoint is still in the ring");
+        assertEq(hook.price24hAgo(), 0, "a 60-hour-old checkpoint is no day-old reference");
+        vm.warp((h0 + 61) * 1 hours + 60);
+        buy(bob, 1e18);
+        vm.warp((h0 + 84) * 1 hours + 60);
+        assertEq(hook.price24hAgo(), _ringPrice(h0 + 60), "exactly 24 hours old: the reference");
+        vm.warp((h0 + 85) * 1 hours + 60);
+        assertEq(hook.price24hAgo(), _ringPrice(h0 + 61), "the newest older one within two days");
+    }
+
+    /// R4-A3-1: after the death an exact-output trade stopped by a price limit would hand the swapper
+    /// a short (even negative) output delta and the rest as a separate refund; it reverts instead,
+    /// and a whole fill returns exactly the requested output.
+    function test_aPriceLimitedExactOutputTradeRevertsInsteadOfAShortDelta() public {
+        buy(alice, 500e18);
+        skip(DEADMAN + 1);
+        bool pz = hook.pleaIsZero();
+        // One tick of room in the sell's direction: the fill is a sliver of the 100 IMD requested.
+        uint160 limit = TickMath.getSqrtPriceAtTick(hook.currentTick() + (pz ? -int24(1) : int24(1)));
+        vm.prank(alice);
+        (bool ok, bytes memory ret) =
+            address(router).call(abi.encodeCall(router.sellExactOutLimit, (100e18, abi.encode(alice), limit)));
+        assertFalse(ok, "a price-limited exact-output trade must revert");
+        assertEq(_hookReason(ret), PleaHook.PartialFill.selector, "the hook's PartialFill");
+        uint256 before = imd.balanceOf(alice);
+        vm.startPrank(alice);
+        plea.approve(address(router), type(uint256).max);
+        router.sellExactOutLimit(50e18, abi.encode(alice), 0);
+        vm.stopPrank();
+        assertEq(imd.balanceOf(alice) - before, 50e18, "a whole exact-output fill pays exactly the request");
+    }
+
+    /// R4-A3-2: the agreed opening rule (the owner buys 2 IMD right after seed) closes the opening
+    /// exception although rounding leaves the pool a few wei under the 2 IMD reserve: the buy's own
+    /// fee counts, so the next buy pays the owner, the pot and the cashback (as ERC-6909 claims while
+    /// the PoolManager is short, as documented).
+    function test_theOwnersTwoImdOpeningBuyClosesTheOpeningException() public {
+        fund(OWNER);
+        buy(OWNER, 2e18);
+        assertLt(hook.imdInMarket() + hook.retainClaims(), hook.PAYOUT_RESERVE(), "setup: a few wei under the reserve");
+        uint256 ownerBefore = imd.balanceOf(OWNER) + pm.balanceOf(OWNER, _imdId());
+        uint256 potBefore = imd.balanceOf(address(seasons)) + pm.balanceOf(address(seasons), _imdId());
+        buy(bob, 200e18);
+        assertGt(imd.balanceOf(OWNER) + pm.balanceOf(OWNER, _imdId()) - ownerBefore, 1.4e18, "the owner's 0.75%");
+        assertGt(
+            imd.balanceOf(address(seasons)) + pm.balanceOf(address(seasons), _imdId()) - potBefore, 0.45e18, "the pot's 0.25%"
+        );
+        assertGt(simd.byProject(bob, address(hook)) + pm.balanceOf(bob, _imdId()), 0.9e18, "bob's 0.5% cashback");
+    }
+
+    /// R4-A2-2: the site's box asking for more than the balance leaves after the fee reserve is
+    /// refused as FeeTooHigh, not with the token's error.
+    function test_aPleaOfTheWholeBalanceIsRefusedAsFeeTooHigh() public {
+        buy(alice, 200e18);
+        uint256 bal = plea.balanceOf(alice);
+        vm.prank(alice);
+        vm.expectPartialRevert(Letterbox.FeeTooHigh.selector);
+        letterbox.plead(bal, "Everything for the move; nothing stays behind.");
+    }
+
+    /// R4-A3-3: a credit that returns without pulling the cashback leaves no standing allowance over
+    /// the hook's IMD.
+    function test_aCreditThatPullsNothingLeavesNoAllowance() public {
+        buy(alice, 100e18); // past the opening exception: this buy funds the PoolManager
+        vm.etch(address(stacker), type(NoopStacker).runtimeCode);
+        buy(bob, 100e18);
+        assertEq(imd.allowance(address(hook), address(stacker)), 0, "no allowance stays after the credit");
+    }
+
+    /// @dev The hook error inside the PoolManager's WrappedError(hook, hookSelector, reason, HookCallFailed).
+    function _hookReason(bytes memory ret) internal view returns (bytes4) {
+        assertEq(bytes4(ret), CustomRevert.WrappedError.selector, "a wrapped hook error");
+        bytes memory body = new bytes(ret.length - 4);
+        for (uint256 i; i < body.length; ++i) body[i] = ret[i + 4];
+        (address target, bytes4 hookSelector, bytes memory reason, bytes memory details) =
+            abi.decode(body, (address, bytes4, bytes, bytes));
+        assertEq(target, address(hook));
+        assertEq(hookSelector, IHooks.afterSwap.selector);
+        assertEq(bytes4(details), Hooks.HookCallFailed.selector);
+        return bytes4(reason);
+    }
 }
 
-/// R1-A2-1: the early-seed power follows PLEA's current owner, not the launch-time snapshot.
+/// @dev A Stacker whose credit succeeds without pulling anything (the round-4 allowance probe).
+contract NoopStacker {
+    function SIMD() external pure returns (address) {
+        return address(0);
+    }
+
+    function credit(address, uint256) external {}
+}
+
 contract AuditRound1SeedOwnerTest is Fixture {
     address newOwner = makeAddr("newOwner");
 
@@ -400,6 +502,44 @@ contract AuditRound1MainnetAppealTest is Fixture {
         (ok, ret) = address(letterbox).call(bytes("APPEAL The move will not wait; I keep the rest."));
         assertFalse(ok);
         assertEq(bytes4(ret), Letterbox.FeeTooHigh.selector, "refused as FeeTooHigh, not a token error");
+    }
+
+    /// R4-A2-1: the appeal's fee exception compares PLEA at two prices; with the fees' own 10% slack a
+    /// small writer can still appeal by letter after the hourly snapshot fell by a few percent.
+    function test_aSmallWriterCanAppealByLetterAfterThePriceFell() public {
+        address[5] memory sellers = [bob, carol, makeAddr("seller3"), makeAddr("seller4"), makeAddr("seller5")];
+        for (uint256 i = 2; i < 5; ++i) fund(sellers[i]);
+        for (uint256 i; i < 5; ++i) buy(sellers[i], 150e18);
+        buy(alice, 8.45e18);
+        skip(1 days);
+        buy(sellers[2], 1e18); // this hour's checkpoint
+        uint256 p0 = hook.latestPrice();
+        vm.prank(alice);
+        (bool ok,) = address(letterbox).call(bytes("Fifteen percent for the phone bill; the rest stays with me."));
+        assertTrue(ok, "the letter was refused");
+        uint256 id = gate.lastPleaOf(alice);
+        assertTrue(answer(id, 0), "verdict");
+        // Five approved sales push the price down; the next hour's first trade checkpoints it.
+        for (uint256 i; i < 5; ++i) {
+            uint256 part = plea.balanceOf(sellers[i]) / 2;
+            if (part > 2_500_000e18) part = 2_500_000e18; // the gate's cap
+            vm.prank(sellers[i]);
+            uint256 pid = gate.submitSell(part, "Part of it for the roof; the rest stays with me.");
+            assertTrue(answer(pid, 45), "verdict");
+            vm.startPrank(sellers[i]);
+            plea.approve(address(gate), type(uint256).max);
+            gate.executeSell(0);
+            vm.stopPrank();
+        }
+        skip(1 hours);
+        buy(sellers[2], 0.01e18);
+        uint256 p1 = hook.latestPrice();
+        assertLt(p1 * 100, p0 * 97, "setup: the snapshot fell by more than 3%");
+        assertGt(p1 * 100, p0 * 90, "setup: but by less than 10%");
+        vm.prank(alice);
+        (ok,) = address(letterbox).call(bytes("APPEAL The phone is how I work; I keep the rest."));
+        assertTrue(ok, "whoever could plead by letter can appeal by letter after a small price fall");
+        assertTrue(gate.getPlea(gate.lastPleaOf(alice)).isAppeal);
     }
 }
 

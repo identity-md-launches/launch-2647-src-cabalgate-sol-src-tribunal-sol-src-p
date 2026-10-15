@@ -332,7 +332,8 @@ contract GasPassTest is Fixture {
         uint64 bestHour;
         for (uint256 i; i < 48; ++i) {
             (uint64 hour, uint256 p) = hook.ring(i);
-            if (p != 0 && hour <= target && hour >= bestHour) {
+            // Within two days (round 4, R4-A1-1): a checkpoint that only survived in a quiet ring is no reference.
+            if (p != 0 && hour <= target && hour + 24 >= target && hour >= bestHour) {
                 bestHour = hour;
                 best = p;
             }

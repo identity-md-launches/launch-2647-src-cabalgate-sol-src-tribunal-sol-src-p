@@ -13,7 +13,9 @@ contract AppealRoundingTest is Fixture {
         buy(alice, 2_000e18);
         buy(bob, 1e18);
         holdAWeek(bob); // run 7: a 50% plea needs the 7-day holding points
-        buy(bob, 1e18); // Establish the hour's price before comparing plea and appeal share bands.
+        // Round 4 (R4-A1-1): the trend reference must lie within two days, so a quiet week reads as "no
+        // history"; a real day-old reference and an up trend (the 50% plea needs the 9 points).
+        trendUp(bob, 150e18);
     }
 
     function test_minimumSitePleaCanAppealAfterFeeSaleRounding() public {

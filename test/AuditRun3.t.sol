@@ -360,7 +360,8 @@ contract AuditRun3Test is Fixture {
             (uint64 hour, uint256 p) = hook.ring(i);
             if (p == 0) continue;
             if (hour >= bestL) (bestL, latest) = (hour, p);
-            if (hour <= target && hour >= bestA) (bestA, ago) = (hour, p);
+            // Within two days (round 4, R4-A1-1): older checkpoints are no reference.
+            if (hour <= target && hour + 24 >= target && hour >= bestA) (bestA, ago) = (hour, p);
         }
     }
 

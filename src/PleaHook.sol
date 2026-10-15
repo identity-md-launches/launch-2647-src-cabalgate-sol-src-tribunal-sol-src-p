@@ -53,6 +53,7 @@ contract PleaHook {
     error ExactOutputBuyRefused();
     error RecipientRequired();
     error NotEnoughGas(uint256 needed, uint256 left);
+    error PartialFill(uint256 filled, uint256 requested);
 
     event Seeded(uint160 sqrtPriceX96, int24 tick, uint128 liquidity, uint256 pleaDeposited);
     event FeesTaken(
@@ -292,10 +293,11 @@ contract PleaHook {
         // A checkpoint from exactly that hour is the answer; otherwise scan the ring.
         Checkpoint storage t = ring[target % RING];
         if (t.hour == target && t.priceX96 != 0) return t.priceX96;
+        // The newest older checkpoint within two days (never one that only survived in a quiet ring).
         uint64 bestHour;
         for (uint256 i; i < RING; ++i) {
             Checkpoint memory c = ring[i];
-            if (c.priceX96 != 0 && c.hour <= target && c.hour >= bestHour) {
+            if (c.priceX96 != 0 && c.hour <= target && c.hour + 24 >= target && c.hour >= bestHour) {
                 bestHour = c.hour;
                 best = c.priceX96;
             }
@@ -457,10 +459,11 @@ contract PleaHook {
         uint256 amount = exactIn ? uint256(-params.amountSpecified) : uint256(params.amountSpecified);
         bool specifiedIsImd = buy == exactIn;
         uint256 rate = specifiedIsImd ? _imdRate(buy) : PLEA_BURN_BPS;
-        if (!specifiedIsImd && buy) _checkMaxBuy(amount);
         // Exact input: the fee is a share of what reaches the pool (amount - fee), not of the gross input.
         // Exact output: the pool fills amount + fee, and the fee is the same share of that fill.
         uint256 fee = exactIn ? amount * rate / (BPS + rate) : amount * rate / (BPS - rate);
+        // The launch cap bounds the pool's gross PLEA output on both paths (exact input: afterSwap).
+        if (!specifiedIsImd && buy) _checkMaxBuy(amount + fee);
         uint160 priceBefore = currentSqrtPriceX96();
         assembly ("memory-safe") {
             tstore(T_TRADER, trader)
@@ -506,6 +509,12 @@ contract PleaHook {
         uint256 unspecAmt = ud < 0 ? uint256(uint128(-ud)) : uint256(uint128(ud));
         bool specifiedIsImd = buy == exactIn;
 
+        // An exact-output trade fills whole or reverts: its fee was reserved on the requested output, so
+        // a price-limited partial fill would hand the swapper a short, even negative, output delta and
+        // the rest as a separate refund (round 4, R4-A3-1).
+        if (!exactIn && specAmt < uint256(params.amountSpecified) + specFee) {
+            revert PartialFill(specAmt, uint256(params.amountSpecified) + specFee);
+        }
         // The specified-side fee was taken on the requested amount; charge it on the fill only.
         uint256 specDue = specAmt * (specifiedIsImd ? _imdRate(buy) : PLEA_BURN_BPS) / BPS;
         if (specDue > specFee) specDue = specFee;
@@ -561,8 +570,9 @@ contract PleaHook {
     /// pot and the hook (for cashback); the pool share kept as claims for the wall. The payouts are
     /// taken from the PoolManager, which holds the swapper's input only after this call, so they are
     /// measured against this pool's own IMD before the swap (the market band, the wall, the hook's
-    /// claims), which no unlocker can move: while that is under `PAYOUT_RESERVE`, a buy's unfunded
-    /// payouts join liquidity; a later shortage pays ERC-6909 IMD claims to the same beneficiaries.
+    /// claims), which no unlocker can move: while that plus the buy's own fee is under `PAYOUT_RESERVE`,
+    /// a buy's unfunded payouts join liquidity; a later shortage pays ERC-6909 IMD claims to the same
+    /// beneficiaries.
     /// The PoolManager's balance alone is never trusted: a router that flash-takes it inside its
     /// unlock only makes its own swap revert at the take.
     /// @return cashback IMD now held by the hook for the trader.
@@ -589,10 +599,12 @@ contract PleaHook {
             // swap reverts at the take below instead of reaching the exception or the claims.
             uint256 own = _imdIn(market, priceBefore) + _imdIn(wall, priceBefore) + retainClaims;
             bool asClaims = own < out && imd.balanceOf(address(poolManager)) < out;
-            // The opening buys: while the pool's own IMD is under PAYOUT_RESERVE, a buy's unfunded
-            // payouts join pool liquidity. No flag: a dust buy, whatever its fee, cannot use the
-            // exception up for the buy that follows it.
-            if (asClaims && buy && own < PAYOUT_RESERVE) {
+            // The opening buys: while the pool's own IMD plus this buy's fee is under PAYOUT_RESERVE, a
+            // buy's unfunded payouts join pool liquidity. No flag: a dust buy, whatever its fee, cannot
+            // use the exception up for the buy that follows it. The buy's own fee counts, so the agreed
+            // 2 IMD opening buy closes the exception although rounding leaves the pool a few wei short
+            // of the reserve (round 4, R4-A3-2).
+            if (asClaims && buy && own + imdFee < PAYOUT_RESERVE) {
                 emit PayoutsToPool(out);
                 (cashback, toOwner, toPrize, out) = (0, 0, 0, 0);
             }
@@ -727,6 +739,8 @@ contract PleaHook {
         _requireGas(creditGas * 64 / 63 + CREDIT_RESERVE);
         totalCashback += amount;
         try stacker.credit{gas: creditGas}(trader, amount) {
+            // The allowance is per credit: nothing stays approved after a credit that pulled less.
+            imd.forceApprove(address(stacker), 0);
             emit CashbackStacked(trader, amount);
             return;
         } catch {}

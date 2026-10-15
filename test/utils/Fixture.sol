@@ -331,9 +331,13 @@ abstract contract Fixture is Test {
         }
     }
 
-    /// @dev A 24-hour "up" trend for the fact score: `who` buys `imdIn` now, and the next hour's
-    /// first trade (a small buy) checkpoints the lifted price above the day-old one.
+    /// @dev A 24-hour "up" trend for the fact score, 24 hours long: a small buy checkpoints the
+    /// current price as the day-old reference, 23 hours later `who` buys `imdIn`, and the next hour's
+    /// first trade (a small buy) checkpoints the lifted price. The reference must lie within two days
+    /// (round 4, R4-A1-1), so a quiet week before this reads as "no history" without it.
     function trendUp(address who, uint256 imdIn) internal {
+        buy(who, 1e18);
+        skip(23 hours);
         buy(who, imdIn);
         skip(1 hours);
         buy(who, 1e18);

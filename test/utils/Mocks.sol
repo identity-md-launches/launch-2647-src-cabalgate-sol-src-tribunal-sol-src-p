@@ -113,6 +113,17 @@ contract BuyRouter {
         return before - imd.balanceOf(msg.sender);
     }
 
+    /// @dev Exact-output sell (IMD specified) that stops at `sqrtPriceLimitX96` (a partial fill when the
+    /// limit is near spot; zero = no limit).
+    function sellExactOutLimit(uint256 imdWanted, bytes memory hookData, uint160 sqrtPriceLimitX96)
+        external
+        returns (uint256 imdOut)
+    {
+        return abi.decode(
+            pm.unlock(abi.encode(msg.sender, false, int256(imdWanted), hookData, sqrtPriceLimitX96)), (uint256)
+        );
+    }
+
     function sellExactIn(uint256 pleaIn, bytes memory hookData) external returns (uint256 imdOut) {
         return abi.decode(pm.unlock(abi.encode(msg.sender, false, -int256(pleaIn), hookData, uint160(0))), (uint256));
     }

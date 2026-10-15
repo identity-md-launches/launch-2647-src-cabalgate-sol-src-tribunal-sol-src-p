@@ -294,6 +294,8 @@ contract Letterbox is ReentrancyGuardTransient {
         _requireWorthTheFee(amount);
         (uint256 feeImd, uint256 maxFeePlea) = feesFor(false);
         if (maxFeePlea * BPS > bal * MAX_FEE_SHARE_BPS) revert FeeTooHigh(maxFeePlea, bal);
+        // The site's box may ask for more than the balance leaves after the fee reserve.
+        if (amount + maxFeePlea > bal) revert FeeTooHigh(maxFeePlea, bal);
         plea.courtTake(writer, amount + maxFeePlea);
         _approveGate(maxFeePlea, false);
         uint256 feePlea;
@@ -342,10 +344,12 @@ contract Letterbox is ReentrancyGuardTransient {
         // here rather than delivered for nothing). A letter's appeal pays no fee and goes through.
         if ((flags & BY_LETTER) == 0) _requireWorthTheFee(amount);
         (uint256 feeImd, uint256 maxFeePlea) = feesFor(true);
-        // The fees may take 10% of the balance, or up to the original plea's amount when that is more
-        // (the appeal itself may be clamped under the fee's worth by the first fee sale): whoever
-        // could plead by letter (a plea worth at least 0.70 IMD) can always appeal by letter.
-        if (maxFeePlea * BPS > bal * MAX_FEE_SHARE_BPS && maxFeePlea > originalAmount) {
+        // The fees may take 10% of the balance, or up to the original plea's amount with the fees' own
+        // 10% slack when that is more (the appeal itself may be clamped under the fee's worth by the
+        // first fee sale, and the original amount is PLEA at the letter's price): whoever could plead
+        // by letter (a plea worth at least 0.70 IMD) can appeal by letter unless the hourly snapshot
+        // fell by more than about a tenth since the letter.
+        if (maxFeePlea * BPS > bal * MAX_FEE_SHARE_BPS && maxFeePlea * BPS > originalAmount * FEE_CAP_BPS) {
             revert FeeTooHigh(maxFeePlea, bal);
         }
         // The exception admits fees above 10%; the escrow and the fees must still fit the balance.

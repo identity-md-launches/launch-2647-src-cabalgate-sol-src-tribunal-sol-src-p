@@ -75,7 +75,7 @@ No PLEA holding is required: a balance check is beaten with dust.
 
 **The dead-man:** objection rulings do **not** reset `lastVerdictAt`. Only plea verdicts keep the Cabal alive.
 
-**After the Cabal dies:** objections and rulings still work for pleas approved before the death. They only affect the last season, which closes no sooner than one hour after the death.
+**After the Cabal dies:** nothing is left to object to. The death comes 33 hours after the last verdict, and every objection window (20 minutes after an approval) and every pending objection (stale 20 minutes after filing) has ended at least 32 hours 20 minutes before it. Only `settle` and `expire` can still run after the death; a late overruled stake becomes rollover or, after the last close, reaches the wall through a second `flushToWall`.
 
 ---
 
