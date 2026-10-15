@@ -163,8 +163,8 @@ contract AuditRound1Test is Fixture {
         skip(DEADMAN + 1); // free trading: a buy needs no recipient
         uint160 limit = hook.currentSqrtPriceX96();
         bool pz = hook.pleaIsZero();
-        // One tick of room: the fill is a sliver of the 100 IMD requested.
-        int24 t = hook.currentTick() + (pz ? int24(-1) : int24(1));
+        // One tick of room in the buy's direction: the fill is a sliver of the 100 IMD requested.
+        int24 t = hook.currentTick() + (pz ? int24(1) : int24(-1));
         limit = TickMath.getSqrtPriceAtTick(t);
         uint256 routerImd = imd.balanceOf(address(router));
         uint256 routerClaims = pm.balanceOf(address(router), _imdId());

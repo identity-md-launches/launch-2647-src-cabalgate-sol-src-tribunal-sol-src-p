@@ -334,9 +334,13 @@ contract HookRevisionTest is Fixture {
         assertEq(hook.wallGuardTick(), pz ? stopped : stopped + 1, "the guard did not follow the traded price");
     }
 
-    /// @dev The extreme is ignored however often the pool is drained, and the guard does not drift.
+    /// @dev The extreme is ignored however often the pool is drained: the guard never follows a drain,
+    /// and after the buy that brings spot back it only climbs toward the market reference at the
+    /// paced rate (the reference stays at the market since round-2 audit R2-A3-3; before, the drains
+    /// dragged it to the extreme and the guard had nothing to climb to).
     function testFuzz_repeatedDrainsToTheExtremeNeverMoveTheGuard(uint8 drains) public {
         drains = uint8(bound(drains, 1, 4));
+        bool pz = hook.pleaIsZero();
         buy(alice, 100e18);
         _killCabal();
         int24 g0 = hook.wallGuardTick();
@@ -353,7 +357,10 @@ contract HookRevisionTest is Fixture {
             vm.roll(vm.getBlockNumber() + 1);
             skip(10 minutes);
             buy(bob, 5e18);
-            assertEq(hook.wallGuardTick(), g0, "a buy after the drain moved the guard");
+            int24 g = hook.wallGuardTick();
+            // 10 minutes at 400 ticks a day: at most 2 ticks, toward the market, never away from it.
+            assertTrue(pz ? g >= g0 && g - g0 <= 3 : g <= g0 && g0 - g <= 3, "a buy after the drain moved the guard");
+            g0 = g;
         }
     }
 
