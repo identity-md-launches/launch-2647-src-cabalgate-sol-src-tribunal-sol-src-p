@@ -254,13 +254,13 @@ contract AuditRevisionTest is Fixture {
         vm.prank(address(distributor));
         plea.transfer(alice, 1_000_000e18);
         uint256 amount = 1000e18;
-        assertEq(gate.factScore(alice, amount), 23);
+        assertEq(gate.factScore(alice, amount), 21);
         buy(alice, 1e12);
         (, uint256 held,) = hook.basisOf(alice);
         assertLt(held, amount);
-        assertEq(gate.factScore(alice, amount), 23, "dust basis scored an untracked sale");
+        assertEq(gate.factScore(alice, amount), 21, "dust basis scored an untracked sale");
         skip(7 days);
-        assertEq(gate.factScore(alice, amount), 23, "dust basis granted holding points");
+        assertEq(gate.factScore(alice, amount), 21, "dust basis granted holding points");
     }
 
     function paid(address who) internal view returns (uint256) {

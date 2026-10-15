@@ -18,7 +18,7 @@ import {IIntake, IPLEA, IPleaHook} from "./interfaces/IPleaParts.sol";
 /// @title CabalGate — the only way to sell PLEA while the Cabal lives
 /// @notice A seller submits a plea and pays the IdentityMD Intake for an oracle question; a panel
 /// of 30 judges ("the Cabal") scores the plea 0-45 and the signed score comes back through the
-/// Intake's callback. A score at or above the seller's need (70 minus the on-chain fact score)
+/// Intake's callback. A score at or above the seller's need (71 minus the on-chain fact score)
 /// opens a seven-minute window to sell through this gate.
 ///
 /// The Cabal lives from the moment trading opens until `DEADMAN` passes without a signed score.
@@ -120,7 +120,7 @@ contract CabalGate is OracleAttestationConsumer {
     uint256 public constant MIN_SHARE_BPS = 100;
     uint8 public constant FLAG_BY_LETTER = 1;
     uint8 public constant FLAG_AUTO_SELL = 2;
-    uint256 public constant PASS_MARK = 70;
+    uint256 public constant PASS_MARK = 71;
     uint256 public constant MAX_PLEA_SCORE = 45;
     uint16 public constant PANEL_SIZE = 30;
     uint16 public constant QUORUM = 17;
@@ -241,7 +241,7 @@ contract CabalGate is OracleAttestationConsumer {
         return IPleaHook(plea.hook());
     }
 
-    /// @notice The on-chain fact score (0-55) for `seller` selling `amount` now. Prices are the
+    /// @notice The on-chain fact score (0-45) for `seller` selling `amount` now. Prices are the
     /// hook's hourly checkpoints, never the spot price, and the holding time is buy-weighted.
     function factScore(address seller, uint256 amount) public view returns (uint8 score) {
         return _factScore(seller, amount, plea.balanceOf(seller));
@@ -258,28 +258,23 @@ contract CabalGate is OracleAttestationConsumer {
     /// own share and the original's, so a floor raise after the fee sale shrank the balance never
     /// drops the appeal into a worse band than the plea it repeats (a smaller appeal keeps its own).
     function _factScoreAt(address seller, uint256 amount, uint256 shareBps) internal view returns (uint8 score) {
-        if (shareBps <= 2_000) score += 18;
-        else if (shareBps <= 3_500) score += 11;
-        else score += 5;
+        score = shareBps <= 1_500 ? 16 : shareBps <= 3_000 ? 9 : 3;
         IPleaHook h = hook();
         (uint256 spent, uint256 heldPlea, uint256 avgBuyTime) = h.basisOf(seller);
         // An untracked distribution or transfer must not inherit the history of a dust buy.
         bool covered = heldPlea >= amount;
         if (covered && avgBuyTime != 0 && avgBuyTime <= block.timestamp) {
             uint256 held = block.timestamp - avgBuyTime;
-            if (held >= 7 days) score += 14;
-            else if (held >= 3 days) score += 9;
-            else if (held >= 1 days) score += 5;
+            score += held >= 7 days ? 7 : held >= 3 days ? 4 : held >= 1 days ? 2 : 0;
         }
         uint256 latest = h.latestPrice();
         if (covered && heldPlea != 0 && spent != 0) {
             uint256 value = FullMath.mulDiv(heldPlea, latest, FixedPoint96.Q96);
             if (value < spent) {
-                score += 14;
+                score += 13;
             } else {
                 uint256 gainPct = (value - spent) * 100 / spent;
-                if (gainPct <= 50) score += 9;
-                else if (gainPct <= 200) score += 5;
+                score += gainPct <= 50 ? 8 : gainPct <= 200 ? 3 : 0;
             }
         }
         uint256 ago = h.price24hAgo();

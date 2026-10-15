@@ -31,6 +31,12 @@ contract SeasonsTest is Fixture {
         return 50e18;
     }
 
+    /// @dev Run 7: a fresh 10% plea at a loss needs 37, a week-old one 30, so the ranking test with
+    /// scores from 35 ages the holders first (the mocked ranking fixture has no gate to satisfy).
+    function ageHolders() internal virtual {
+        holdAWeek(alice);
+    }
+
     /// @dev Pleads and approves with `score`, then observes the cooldown on lapsed approvals.
     function scored(address who, uint256 score) internal virtual returns (uint256 id) {
         id = approvedPlea(who, score);
@@ -123,6 +129,7 @@ contract SeasonsTest is Fixture {
     }
 
     function test_tiesRankTheEarlierPleaFirstAndALaterTieSlotsInBelow() public {
+        ageHolders();
         for (uint256 i; i < 11; ++i) {
             seasons.record(scored(players[i], 35 + (i % 10)));
         }
@@ -243,6 +250,8 @@ contract FastClockTest is SeasonsTest {
     /// @dev The ranking unit cases require up to four scores from one wallet. That cannot fit in
     /// five hours under the real four-hour cooldown. Supply approved-result fixtures for those
     /// cases; AuditRevisionTest covers real, paced approvals and closing on the manifest's clock.
+    function ageHolders() internal override {}
+
     function scored(address who, uint256 score) internal override returns (uint256 id) {
         id = nextScoredId++;
         vm.mockCall(

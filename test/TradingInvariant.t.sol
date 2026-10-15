@@ -121,7 +121,7 @@ contract TradingHandler is Test {
         if (minimum == 0) minimum = 1;
         if (maximum < minimum) return;
         uint256 amount = bound(raw, minimum, maximum);
-        uint256 need = 70 - gate.factScore(actor, amount);
+        uint256 need = 71 - gate.factScore(actor, amount);
         uint256 balanceBefore = feeAsset.balanceOf(actor);
         if (need > 45) vm.expectRevert(abi.encodeWithSelector(CabalGate.CannotPass.selector, need));
         vm.prank(actor);

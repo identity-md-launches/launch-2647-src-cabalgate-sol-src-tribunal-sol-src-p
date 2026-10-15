@@ -55,7 +55,7 @@ For the first **90 minutes** after trading opens, buys pay an extra launch fee t
 While the Cabal lives, ordinary holders send PLEA through `CabalGate`. The owner can permanently exempt any sender with `PLEA.allow(account)`. An exempt sender can transfer to buyers or other trading venues without a plea or this hook's fees and cap trim; direct transfers to this pool's PoolManager and gate remain restricted. This add-only owner power is part of the accepted launch design.
 
 1. **Plead.** Ask to sell at least **1%** of your balance (or 2.5M PLEA, when that is less) and at most **2.5M PLEA** and **50%** of your balance, with a plea of **1–280 bytes** (UTF-8: about 280 Latin, 140 Cyrillic or Arabic, 93 CJK characters; any language is judged), and pay the **0.5 IMD** oracle fee. The gate pays the IdentityMD Intake itself. The minimum keeps real PLEA on the line: a plea for a few wei could otherwise earn full season points.
-2. **Need.** The contract computes your fact score (0–55, below). Your **need** is `70 − fact score`. If the need is above 45, no plea can pass, so the gate refuses it (`CannotPass`) before you pay.
+2. **Need.** The contract computes your fact score (0–45, below). Your **need** is `71 − fact score`. If the need is above 45, no plea can pass, so the gate refuses it (`CannotPass`) before you pay. A fresh buyer selling 15% at a loss needs 37; after a day 35, after three days 33, after a week 30 (serious pleas score about 33 on average, so the panel decides for new holders and a week-old holder usually passes). A large same-day sale at a profit cannot pass.
 3. **Verdict.** The judges score the plea 0–45; the signed score comes back through the Intake's callback. **Score ≥ need** is an approval. The gate asks with Intake v2's `requestWithFailure`, so a refused or unanswered plea is cleared at once. Failures are unsigned, so the failure function only clears our own pending plea and never moves value.
 4. **Sell.** An approval opens a **7-minute** window to sell the whole amount through the gate in one swap (`executeSell(minOut)`).
 
@@ -82,14 +82,14 @@ All three are the same letter: `letter(text)` reads its text exactly like raw in
 
 | Letter | Effect |
 |---|---|
-| any text | A new plea for **20% of your PLEA** (within the 2.5M cap), **sold automatically** if approved. At most 280 bytes (≈ 280 Latin, 140 Cyrillic or Arabic, 93 CJK characters), or it is refused with `LetterTooLong(bytes, 280)` |
+| any text | A new plea for **15% of your PLEA** (within the 2.5M cap), **sold automatically** if approved. At most 280 bytes (≈ 280 Latin, 140 Cyrillic or Arabic, 93 CJK characters), or it is refused with `LetterTooLong(bytes, 280)` |
 | `APPEAL <text>` | Appeals your latest denied plea, inside its 4-hour window, for the original plea's **share of your balance** (so the first letter's fee sale cannot push the appeal into a worse share band; at most 50% of your balance now, never under the gate's 1% minimum, and raised back to the 0.70 IMD floor's worth when the clamp lands under it; the gate then scores the share band on the lesser of the appeal's share and the original's, so the raise never costs the band); an appeal that got no verdict can be sent again. You may name the earlier verdict or score: that is not manipulation, only demanding an outcome is |
 | `SELL` | Sells your own approved letter plea yourself, if no runner has yet |
 | `NAME <name>` | Sets your display name (3–20 characters `a-z 0-9 _`, unique; also `setName` on the Letterbox); `NAME` alone clears it |
 
 A command word is matched in capitals at the very start, followed by a space, a newline or nothing; a bare command word never becomes a paid plea. A plea's text is one line: newlines inside it are refused.
 
-- **Fees are paid in PLEA, in the letter's own transaction.** The gate sells just enough of your PLEA, through the hook with the normal 2.0% fee and your own 0.5% cashback, for exactly the IMD needed: the 0.5 IMD oracle fee, a **0.25 IMD runner tip** and, for an appeal, the 0.35 IMD wall share. That is all a letter ever costs: **letters pay no auto-sell fee**, and a writer who sends `SELL` gets the tip back. It may spend at most the hourly snapshot value **+10%**; unspent PLEA comes straight back. A letter whose fees would take more than 10% of your PLEA, or whose 20% is under 1,000 PLEA, is refused (an appeal's fees may instead go up to the appeal's own amount, so whoever could plead by letter can appeal by letter). On Sepolia the oracle fee token is a separate test token, so the Letterbox mints that 0.5 instead of buying it.
+- **Fees are paid in PLEA, in the letter's own transaction.** The gate sells just enough of your PLEA, through the hook with the normal 2.0% fee and your own 0.5% cashback, for exactly the IMD needed: the 0.5 IMD oracle fee, a **0.25 IMD runner tip** and, for an appeal, the 0.35 IMD wall share. That is all a letter ever costs: **letters pay no auto-sell fee**, and a writer who sends `SELL` gets the tip back. It may spend at most the hourly snapshot value **+10%**; unspent PLEA comes straight back. A letter whose fees would take more than 10% of your PLEA, or whose 15% is under 1,000 PLEA, is refused (an appeal's fees may instead go up to the appeal's own amount, so whoever could plead by letter can appeal by letter). On Sepolia the oracle fee token is a separate test token, so the Letterbox mints that 0.5 instead of buying it.
 - **Escrow.** The plea's PLEA waits in the Letterbox. It keeps its buy record: only the final sale reduces it.
 - **Auto-sell.** Once approved, **anyone** may call `deliver(id)` inside the 7-minute window: the gate sells the escrow for at least **95%** of its snapshot value, the whole sale goes to the writer, the points are recorded, and the caller earns the tip. A plea from the site's "sell automatically" box pays the **auto-sell fee** on delivery instead: **0.35 IMD of the sale (never more than the sale) goes to the season's prize pot**, the rest to the writer (selling by hand on the site costs nothing extra). The fee is only ever taken from a sale, and a plea worth less than **0.70 IMD** at the snapshot is refused, letters included, so a fee never eats a sale and a letter's costs stay small next to it. Every other ending (denied, upheld, no verdict, expired, lapsed) is closed by `settle(id)` (anyone), which returns the escrow and the tip to the writer; a lapsed approval is recorded first, since it still counts. The writer's next letter settles the previous one too.
 - **Status on chain.** `status(address)` returns one sentence about your latest plea (`Plea #7 · APPROVED (38 vs 33) · selling automatically`, `… · DENIED (31 vs 33) · send APPEAL <text> before 07:05 UTC`, …); `leaderboard()` returns the running season's top 25 with each rank's IMD prize and PLEA bonus at the current pot. With Objection! the points line says where a plea stands: `+40 points held until 07:25 UTC (objections open)`, `+40 points held: an objection is pending`, `+36 points once recorded` (the lowest panel's score) or `no points: an objection was sustained`.
@@ -108,13 +108,13 @@ The panel scores 0–45 by the rules in `CabalGate.DEFINITIONS` (version 3: v2 w
 
 ### The fact score
 
-Computed on chain at submit time (0–55). Prices come from the hook's hourly checkpoints, never the spot price. An hour's checkpoint is the price the hour's first trade **found**, not the one it made: no trade in an hour can set the reference price that hour's pleas are scored against (a pump still has to be held through the hour before, since the next hour's checkpoint is the price it left).
+Computed on chain at submit time (0–45). Prices come from the hook's hourly checkpoints, never the spot price. An hour's checkpoint is the price the hour's first trade **found**, not the one it made: no trade in an hour can set the reference price that hour's pleas are scored against (a pump still has to be held through the hour before, since the next hour's checkpoint is the price it left).
 
 | Fact | Points |
 |---|---|
-| Share of balance sold | ≤20%: 18 · ≤35%: 11 · more: 5 |
-| Buy-weighted holding time | ≥7 days: 14 · ≥3 days: 9 · ≥1 day: 5 |
-| Profit or loss on held PLEA | at a loss: 14 · gain ≤50%: 9 · gain ≤200%: 5 |
+| Share of balance sold | ≤15%: 16 · ≤30%: 9 · more: 3 |
+| Buy-weighted holding time | ≥7 days: 7 · ≥3 days: 4 · ≥1 day: 2 |
+| Profit or loss on held PLEA | at a loss: 13 · gain ≤50%: 8 · gain ≤200%: 3 |
 | 24h price trend | up >2%: 9 · flat (±2%) or no history: 5 · down: 0 |
 
 ### The dead-man

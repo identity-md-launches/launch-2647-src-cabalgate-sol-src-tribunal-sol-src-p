@@ -10,11 +10,11 @@ import {FullMath} from "v4-core/libraries/FullMath.sol";
 import {FixedPoint96} from "v4-core/libraries/FixedPoint96.sol";
 
 /// Run 3's IMD judge (job c20158a4) left four low findings in the deployed code; run 4 fixes three and
-/// re-runs the fourth's recipe. The setup follows the judge's: 110 whales that bought 100 IMD each a
+/// re-runs the fourth's recipe. The setup follows the judge's: 160 whales that bought 100 IMD each a
 /// day earlier, whose approved cap-sized sales inside one hour crash spot to well under half the
 /// hour's checkpoint.
 contract JudgeFindingsTest is Fixture {
-    uint256 constant N = 110;
+    uint256 constant N = 160; // run 7: 15% sales (was 110 whales selling 35%)
     address[] whales;
     address victim = makeAddr("victim");
     address smallHolder = makeAddr("smallHolder");
@@ -33,6 +33,7 @@ contract JudgeFindingsTest is Fixture {
         }
         skip(1 days);
         keepAlive(bob); // the dead-man clock starts here; tests may skip another day
+        holdAWeek(bob); // run 7: a whale's cap-sized sale needs the 7-day holding points
     }
 
     function _nextHourPlusOneMinute() internal {
@@ -40,11 +41,12 @@ contract JudgeFindingsTest is Fixture {
         vm.warp((t / 1 hours + 1) * 1 hours + 60);
     }
 
-    /// Every whale sells min(35% of its balance, 2.5M PLEA) through an approved plea, all in one hour.
+    /// Every whale sells min(15% of its balance, 2.5M PLEA) through an approved plea, all in one hour
+    /// (run 7: a week-old whale at any gain can plead 15%; a larger share needs a loss or an up trend).
     function _crash() internal {
         for (uint256 i; i < N; ++i) {
             address w = whales[i];
-            uint256 amt = plea.balanceOf(w) * 35 / 100;
+            uint256 amt = plea.balanceOf(w) * 15 / 100;
             if (amt > 2_500_000e18) amt = 2_500_000e18;
             uint256 id = plead(w, amt);
             require(answer(id, 45), "verdict");
@@ -106,21 +108,22 @@ contract JudgeFindingsTest is Fixture {
     }
 
     /// Live run 3 (Sepolia, 2026-10-12): a 20% letter's fee sale shrank the balance, so the APPEAL letter
-    /// for the same amount fell into the next share band (fact 30, need 40 instead of 33). The appeal
+    /// for the same amount fell into the next share band (fact 30, need 40 instead of 33; with run 7's
+    /// 15% letters and bands 15/30 the same slip would cost 7 points of need). The appeal
     /// now keeps the original's share of the balance.
     function test_appealLetterKeepsTheOriginalShareBand() public {
         buy(alice, 20e18);
         skip(1 days);
         uint256 id = _letter(alice, "A fifth for the electrician; the rest stays until the lights go out.");
         CabalGate.Plea memory p = gate.getPlea(id);
-        assertEq(p.need, 70 - p.factScore);
+        assertEq(p.need, 71 - p.factScore);
         uint8 need = p.need;
         require(answer(id, 0), "verdict");
         uint256 ap = _letter(alice, "APPEAL The electrician does not wait; the rest still stays.");
         CabalGate.Plea memory a = gate.getPlea(ap);
         assertEq(a.need, need, "the appeal is judged against the same need as the plea");
         assertLt(a.amount, p.amount, "a slightly smaller amount keeps the share band");
-        assertLe(a.amount * 10_000 / gate.pleaBalance(ap), 2_000, "still in the 20% band");
+        assertLe(a.amount * 10_000 / gate.pleaBalance(ap), 1_500, "still in the 15% band");
     }
 
     /// Run-4 import audit: a site plea at exactly the gate's 1% minimum, denied, settled, then appealed
@@ -185,19 +188,20 @@ contract JudgeFindingsTest is Fixture {
         assertEq(plea.owner(), alice);
     }
 
-    /// Finding 7: the 50% ceiling and the 20% / 35% share bands, on a balance under the 2.5M cap.
+    /// Finding 7: the 50% ceiling and the 15% / 30% share bands, on a balance under the 2.5M cap.
     function test_fiftyPercentCeilingAndShareBands() public {
         address dave = makeAddr("dave");
         fund(dave);
         buy(dave, 1e18);
-        skip(1 days);
+        holdAWeek(bob);
+        trendUp(carol, 400e18); // run 7: half the balance at a small gain needs a week and an up trend
         uint256 bal = plea.balanceOf(dave);
         assertLt(bal, 5_000_000e18);
         vm.prank(dave);
         vm.expectRevert(CabalGate.AmountTooLarge.selector);
         gate.submitSell(bal / 2 + 1, "too much");
-        assertEq(gate.factScore(dave, bal * 2000 / 10_000) - gate.factScore(dave, bal * 2001 / 10_000 + 1), 7);
-        assertEq(gate.factScore(dave, bal * 3500 / 10_000) - gate.factScore(dave, bal * 3501 / 10_000 + 1), 6);
+        assertEq(gate.factScore(dave, bal * 1500 / 10_000) - gate.factScore(dave, bal * 1501 / 10_000 + 1), 7);
+        assertEq(gate.factScore(dave, bal * 3000 / 10_000) - gate.factScore(dave, bal * 3001 / 10_000 + 1), 6);
         vm.prank(dave);
         uint256 id = gate.submitSell(bal / 2, "exactly half");
         assertEq(gate.getPlea(id).amount, bal / 2);

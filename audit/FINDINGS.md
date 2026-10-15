@@ -36,6 +36,7 @@ Earlier history (runs 2–4, the pre-run-3 audit `AuditRun3.t.sol`, the run-4 im
 
 ## Run 7 changes since run 6 (not findings; the areas should check them)
 
+- **Recalibration (final, agreed):** the judges' 0–45 scale and `DEFINITIONS` unchanged; the fact score is now 0–45 (`CabalGate._factScoreAt`: share **≤15%: 16 · ≤30%: 9 · more: 3**; hold **≥7d: 7 · ≥3d: 4 · ≥1d: 2**; **at a loss 13 · gain ≤50%: 8 · ≤200%: 3**; trend **up 9 · flat 5 · down 0**) and `PASS_MARK` is **71** (need = 71 − fact; `CannotPass` above 45 as before). Letters plead **15%** (`Letterbox.LETTER_SHARE_BPS` 1,500; new Letterbox hash). A 15% letter at a loss needs 37 fresh, 35 after a day, 33 after three, 30 after a week; a sale above 30% of the balance needs the week's holding points plus a loss or an up trend, and an untracked balance (airdrop, prize, transfer: no buy record) can never pass alone, since 16 + 9 = 25 < 26.
 - Letters pay no 0.35 IMD auto-sell fee (`Letterbox._deliver` takes it only from a plea without the `BY_LETTER` flag); the 0.70 IMD floor stays for letters and the site's box alike. `LetterTooLong(bytes, 280)`.
 - `Seasons`: fourth constructor argument `seat` (the IMD seat NFT); `pointsFor` / `holdsSeat` (gas-capped fail-open `balanceOf`); `_record` stores the multiplied points; `SeatMultiplier` event.
 - `PleaHook`: `OWNER_BPS` 50 → 75 (`IMD_FEE_BPS` 175, total 2.0%); `CAP_DECAY_DAYS` 25 → 15.

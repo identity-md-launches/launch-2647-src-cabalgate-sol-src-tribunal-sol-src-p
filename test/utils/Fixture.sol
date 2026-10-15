@@ -320,4 +320,22 @@ abstract contract Fixture is Test {
         uint256 id = plead(who, plea.balanceOf(who) / 10);
         require(answer(id, 0), "not delivered");
     }
+
+    /// @dev A week passes (six steps of 28 hours) while `who` keeps the Cabal alive. Under the run-7
+    /// fact table a sale above 15% of the balance needs the 7-day holding points to be possible at
+    /// all, so tests that sell a larger share hold a week first.
+    function holdAWeek(address who) internal {
+        for (uint256 i; i < 6; ++i) {
+            skip(28 hours);
+            keepAlive(who);
+        }
+    }
+
+    /// @dev A 24-hour "up" trend for the fact score: `who` buys `imdIn` now, and the next hour's
+    /// first trade (a small buy) checkpoints the lifted price above the day-old one.
+    function trendUp(address who, uint256 imdIn) internal {
+        buy(who, imdIn);
+        skip(1 hours);
+        buy(who, 1e18);
+    }
 }

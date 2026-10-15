@@ -11,7 +11,8 @@ contract AppealRoundingTest is Fixture {
     function setUp() public virtual override {
         super.setUp();
         buy(alice, 2_000e18);
-        skip(1 days);
+        buy(bob, 1e18);
+        holdAWeek(bob); // run 7: a 50% plea needs the 7-day holding points
         buy(bob, 1e18); // Establish the hour's price before comparing plea and appeal share bands.
     }
 
@@ -90,7 +91,7 @@ contract AppealRoundingTest is Fixture {
     }
 
     function test_shareBandsAndFiftyPercentClampKeepTheirExistingRounding() public {
-        uint256[3] memory shares = [uint256(2_000), 3_500, 5_000];
+        uint256[3] memory shares = [uint256(1_500), 3_000, 5_000];
         for (uint256 i; i < shares.length; ++i) {
             uint256 snapshot = vm.snapshotState();
             uint256 originalBalance = 5_000_000e18 + 99;

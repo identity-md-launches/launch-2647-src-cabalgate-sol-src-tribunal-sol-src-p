@@ -51,7 +51,7 @@ contract SeasonHandler is Test {
         if (results.diedAt() != 0) return;
         uint256 id = approvals.length + 1;
         uint256 season = (vm.getBlockTimestamp() - results.startedAt()) / 18000;
-        uint8 score = uint8(bound(scoreSeed, 15, 45)); // actual approved scores can reach 70 - 55
+        uint8 score = uint8(bound(scoreSeed, 15, 45)); // actual approved scores can reach 71 - 45 = 26
         uint256 actor = actorSeed % 12;
         results.setResult(id, actors[actor], score, true, uint64(vm.getBlockTimestamp()));
         approvals.push(SeasonModel.Approval(id, season, actor, score, recordNow));

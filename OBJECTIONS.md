@@ -65,7 +65,7 @@ No PLEA holding is required: a balance check is beaten with dust.
 
 **Objection and plea text:** 1–280 bytes of well-formed UTF-8, one line, no control, zero-width, bidi, tag or variation-selector characters, and no `[PLEA` / `[/PLEA` or `[OBJECTION` / `[/OBJECTION` marker prefixes (any case). The gate also rejects objection markers because the Tribunal quotes its question verbatim.
 
-**Sustain rule:** `newScore + 2 < need`, where `need` is the plea's stored need (70 − fact score at submit time), not recomputed. The margin of 2 is the panels' own noise (live scores land within about ±2), so a 33-vs-33 approval is not erased by a coin flip; it must come back as 30 or less.
+**Sustain rule:** `newScore + 2 < need`, where `need` is the plea's stored need (71 − fact score at submit time; 70 before run 7), not recomputed. The margin of 2 is the panels' own noise (live scores land within about ±2), so a 33-vs-33 approval is not erased by a coin flip; it must come back as 30 or less.
 
 **Scores only fall:** the recorded score is `min(original, lowest new score)` (run 7: a seller holding an IMD seat NFT at record time earns that score × 1.2 as points, `Seasons.pointsFor`; the score the Tribunal compares with the need is never multiplied). Nobody can re-roll upward, every objection has an effect, and a manipulation the first panel missed scores 0 on re-score.
 
