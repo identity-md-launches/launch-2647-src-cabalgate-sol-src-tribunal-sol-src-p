@@ -87,6 +87,8 @@ contract Seasons {
     mapping(uint256 => mapping(address => uint64[3])) internal _bestPleaIds;
     mapping(uint256 => bool) public closed;
     mapping(uint256 => bool) public recorded;
+    /// @notice The points a recorded plea counted (its score, times the seat multiplier at record time).
+    mapping(uint256 => uint8) public pointsOf;
     /// @notice The oldest season not yet closed (season 0 starts when trading opens).
     uint256 public nextToClose;
     /// @notice Fees received during each season, excluding rollover from earlier seasons.
@@ -258,6 +260,7 @@ contract Seasons {
     function _record(uint256 pleaId, uint256 season, address seller, uint8 score) internal {
         recorded[pleaId] = true;
         uint8 pleaPoints = pointsFor(seller, score);
+        pointsOf[pleaId] = pleaPoints;
         if (pleaPoints != score) emit SeatMultiplier(pleaId, seller, score, pleaPoints);
         uint8[3] storage b = _best[season][seller];
         uint64[3] storage ids = _bestPleaIds[season][seller];

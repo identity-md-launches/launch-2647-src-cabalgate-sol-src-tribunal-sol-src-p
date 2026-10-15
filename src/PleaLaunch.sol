@@ -178,7 +178,8 @@ contract PleaLaunch {
     /// @notice Opens trading: creates the pool (90-min launch window starts) and the first Cabal's era.
     function seed() external {
         if (hook == address(0)) revert HookNotDeployed();
-        if (msg.sender != owner && block.timestamp < START) revert TooEarly(START);
+        // The early-seed power follows PLEA's current owner (Ownable2Step), not the launch-time snapshot.
+        if (msg.sender != IPLEAForLaunch(plea).owner() && block.timestamp < START) revert TooEarly(START);
         // The agreed mainnet clock, checked on the live chain rather than in CabalGate's constructor:
         // launch rehearsals deploy the manifest on a bare EVM whose chain id is 1.
         if (block.chainid == 1 && (IGate(gate).SEASON() < 15 days || IGate(gate).DEADMAN() < 33 hours)) {

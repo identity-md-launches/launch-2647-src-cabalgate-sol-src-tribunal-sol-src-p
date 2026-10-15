@@ -15,6 +15,7 @@ contract PleaDistributor is Ownable2Step {
     using SafeERC20 for IERC20;
 
     error RootAlreadySet();
+    error ZeroRoot();
     error RootNotSet();
     error AlreadyClaimed();
     error InvalidProof();
@@ -38,6 +39,7 @@ contract PleaDistributor is Ownable2Step {
 
     function setMerkleRoot(bytes32 root) external onlyOwner {
         if (merkleRoot != bytes32(0)) revert RootAlreadySet();
+        if (root == bytes32(0)) revert ZeroRoot();
         merkleRoot = root;
         emit RootSet(root);
     }

@@ -453,7 +453,8 @@ contract PleaHook {
         uint256 rate = specifiedIsImd ? _imdRate(buy) : PLEA_BURN_BPS;
         if (!specifiedIsImd && buy) _checkMaxBuy(amount);
         // Exact input: the fee is a share of what reaches the pool (amount - fee), not of the gross input.
-        uint256 fee = exactIn ? amount * rate / (BPS + rate) : amount * rate / BPS;
+        // Exact output: the pool fills amount + fee, and the fee is the same share of that fill.
+        uint256 fee = exactIn ? amount * rate / (BPS + rate) : amount * rate / (BPS - rate);
         uint160 priceBefore = currentSqrtPriceX96();
         assembly ("memory-safe") {
             tstore(T_TRADER, trader)
@@ -558,8 +559,10 @@ contract PleaHook {
         internal
         returns (uint256 cashback)
     {
+        // A buy whose IMD fee rounds to zero (a 1-wei buy) funds nothing, so it must not consume the
+        // first-buy exception for the buy that follows it.
         bool firstBuy = buy && !hasBought;
-        if (buy) hasBought = true;
+        if (buy && imdFee != 0) hasBought = true;
         if (pleaFee != 0) {
             poolManager.take(Currency.wrap(plea), address(this), pleaFee);
             IPLEA(plea).burn(pleaFee);
@@ -821,13 +824,19 @@ contract PleaHook {
             work += claims;
             acted = true;
         }
+        // A tick the pool sits at with no active liquidity, beyond the market band's IMD side, is not
+        // a traded price (a seller's chosen limit through an empty pool): no wall is placed against it
+        // until a buy brings spot back. A fresh pool sits one spacing off the band and is not drained.
+        int24 spot = currentTick();
+        int24 away = pleaIsZero ? refTick - spot : spot - refTick;
+        bool drained = away > TICK_SPACING && poolManager.getLiquidity(poolId()) == 0;
         uint256 deployed = wallImd;
         uint256 back = _closeWall();
         if (deployed != 0) acted = true;
         if (deployed > back) work += deployed - back;
         uint256 amount = retainedImd;
-        if (amount == 0) return (work, acted);
-        int24 spot = currentTick();
+        if (amount == 0 || drained) return (work, acted);
+        spot = currentTick();
         _updateWallGuard(spot);
         int24 guard = wallGuardTick;
         int24 lower;

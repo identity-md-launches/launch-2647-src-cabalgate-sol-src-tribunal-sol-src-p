@@ -103,7 +103,7 @@ contract LetterboxTest is Fixture {
 
     // ---------------------------------------------------------------- pleading by letter
 
-    function test_letterPleadsTenPercentPaysFeesInPleaAndEscrows() public {
+    function test_letterPleadsFifteenPercentPaysFeesInPleaAndEscrows() public {
         uint256 bal = plea.balanceOf(alice);
         uint8 fact = gate.factScore(alice, bal * 15 / 100);
         uint256 intakeBefore = oimd.balanceOf(intake.PAY_TO());
@@ -612,7 +612,7 @@ contract LetterboxTest is Fixture {
         s = letterbox.status(alice);
         assertTrue(vm.contains(s, "DENIED (0 vs"), s);
         assertTrue(vm.contains(s, "send APPEAL <text> before "), s);
-        assertTrue(vm.contains(s, "call settle or send a letter"), s);
+        assertTrue(vm.contains(s, "call settle to get your PLEA back"), s);
         letterbox.settle(d);
         assertTrue(vm.contains(letterbox.status(alice), "PLEA and tip returned"), letterbox.status(alice));
     }

@@ -62,7 +62,7 @@ While the Cabal lives, ordinary holders send PLEA through `CabalGate`. The owner
 | Outcome | What happens |
 |---|---|
 | Approved and sold | Sold; a **4-hour** cooldown before the next plea |
-| Approved, not sold in 7 min | Lapsed; the score still counts for the season |
+| Approved, not sold in 7 min | Lapsed; the score still counts for the season; the **4-hour** cooldown runs from the verdict |
 | Denied | **4-hour** cooldown, with **one appeal** inside it: same or smaller amount, 0.5 IMD oracle fee + 0.35 IMD to the buy wall |
 | No verdict | Cleared at once by the Intake's failure function (`onPleaFailure`, Intake v2) when the request is refused or the panel gives no answer; otherwise after **20 minutes** (`expire(id)`, anyone). No cooldown, no fee back |
 
@@ -89,7 +89,7 @@ All three are the same letter: `letter(text)` reads its text exactly like raw in
 
 A command word is matched in capitals at the very start, followed by a space, a newline or nothing; a bare command word never becomes a paid plea. A plea's text is one line: newlines inside it are refused.
 
-- **Fees are paid in PLEA, in the letter's own transaction.** The gate sells just enough of your PLEA, through the hook with the normal 2.0% fee and your own 0.5% cashback, for exactly the IMD needed: the 0.5 IMD oracle fee, a **0.25 IMD runner tip** and, for an appeal, the 0.35 IMD wall share. That is all a letter ever costs: **letters pay no auto-sell fee**, and a writer who sends `SELL` gets the tip back. It may spend at most the hourly snapshot value **+10%**; unspent PLEA comes straight back. A letter whose fees would take more than 10% of your PLEA, or whose 15% is under 1,000 PLEA, is refused (an appeal's fees may instead go up to the appeal's own amount, so whoever could plead by letter can appeal by letter). On Sepolia the oracle fee token is a separate test token, so the Letterbox mints that 0.5 instead of buying it.
+- **Fees are paid in PLEA, in the letter's own transaction.** The gate sells just enough of your PLEA, through the hook with the normal 2.0% fee and your own 0.5% cashback, for exactly the IMD needed: the 0.5 IMD oracle fee, a **0.25 IMD runner tip** and, for an appeal, the 0.35 IMD wall share. That is all a letter ever costs: **letters pay no auto-sell fee**, and a writer who sends `SELL` gets the tip back. It may spend at most the hourly snapshot value **+10%**; unspent PLEA comes straight back. A letter whose fees would take more than 10% of your PLEA, or whose 15% is under 1,000 PLEA, is refused (an appeal's fees may instead go up to the original plea's amount, so whoever could plead by letter can appeal by letter). On Sepolia the oracle fee token is a separate test token, so the Letterbox mints that 0.5 instead of buying it.
 - **Escrow.** The plea's PLEA waits in the Letterbox. It keeps its buy record: only the final sale reduces it.
 - **Auto-sell.** Once approved, **anyone** may call `deliver(id)` inside the 7-minute window: the gate sells the escrow for at least **95%** of its snapshot value, the whole sale goes to the writer, the points are recorded, and the caller earns the tip. A plea from the site's "sell automatically" box pays the **auto-sell fee** on delivery instead: **0.35 IMD of the sale (never more than the sale) goes to the season's prize pot**, the rest to the writer (selling by hand on the site costs nothing extra). The fee is only ever taken from a sale, and a plea worth less than **0.70 IMD** at the snapshot is refused, letters included, so a fee never eats a sale and a letter's costs stay small next to it. Every other ending (denied, upheld, no verdict, expired, lapsed) is closed by `settle(id)` (anyone), which returns the escrow and the tip to the writer; a lapsed approval is recorded first, since it still counts. The writer's next letter settles the previous one too.
 - **Status on chain.** `status(address)` returns one sentence about your latest plea (`Plea #7 · APPROVED (38 vs 33) · selling automatically`, `… · DENIED (31 vs 33) · send APPEAL <text> before 07:05 UTC`, …); `leaderboard()` returns the running season's top 25 with each rank's IMD prize and PLEA bonus at the current pot. With Objection! the points line says where a plea stands: `+40 points held until 07:25 UTC (objections open)`, `+40 points held: an objection is pending`, `+36 points once recorded` (the lowest panel's score) or `no points: an objection was sustained`.
@@ -157,7 +157,7 @@ After the Cabal approves a plea, the other holders get **20 minutes** to object.
 
 ## Fees
 
-Every trade pays **2.0%**, settled in the same swap. There are no claims to settle later.
+Every trade pays **2.0%**, settled in the same swap. There are no claims to settle later, with one exception: a buy larger than about 66× the IMD the PoolManager holds at that moment (the swapper's input settles after the hook runs) is paid its cashback, owner and prize shares as ERC-6909 IMD claims on the PoolManager, redeemable with a contract that unlocks, burns and takes (Seasons redeems its own at a close). In practice that is the opening minutes, which the owner's own first buy after `seed` covers, and a buy right after a post-death sell has drained the market band.
 
 | Share | Goes to |
 |---|---|
@@ -172,7 +172,7 @@ Every trade pays **2.0%**, settled in the same swap. There are no claims to sett
 Beyond fees, the hook keeps the market supplied the way POOL4's CappedBurnHook does: PLEA above an inventory cap is trimmed and **burned**, and recovered IMD is redeployed as an IMD-only **buy wall** below the price (`rebalance()`, anyone, unpaid: the wall's IMD never leaves the pool).
 
 - **Cap pace.** The cap starts at the seeded inventory and follows buys down, at most `(seeded inventory − 900k floor) ÷ 15` PLEA a day, so it can reach its floor in 15 days (one mainnet season). It never falls below what the market actually holds. PLEA sold back above the cap is trimmed: burned, with the matching slice of IMD moved to the wall.
-- **Wall placement guard** (POOL4's deployment floor, mirrored for an IMD bid). The wall is never placed above a guard price that drops at once to any lower price PLEA trades at, and rises toward the market at most 400 ticks (~4%) a day. Lifting the wall to a pumped price would mean holding that price for days. A sell that empties the pool's IMD side (free trading after the Cabal dies) ends at the seller's price limit, whether the router's default at the tick extreme or any limit chosen inside the liquidity-free region below the market band; the pool has no active liquidity at that tick, it is not a traded price, and the guard ignores it, so the wall is placed against the market once IMD is back, not parked at the extreme for years. A tick inside a band with liquidity was paid for in PLEA and the guard drops to it at once. Until the next buy brings spot back from a drained tick, `rebalance()` reverts rather than placing a wall there.
+- **Wall placement guard** (POOL4's deployment floor, mirrored for an IMD bid). The wall is never placed above a guard price that drops at once to any lower price PLEA trades at, and rises toward the market at most 400 ticks (~4%) a day. Lifting the wall to a pumped price would mean holding that price for days. A sell that empties the pool's IMD side (free trading after the Cabal dies) ends at the seller's price limit, whether the router's default at the tick extreme or any limit chosen inside the liquidity-free region below the market band; the pool has no active liquidity at that tick, it is not a traded price, and the guard ignores it, so the wall is placed against the market once IMD is back, not parked at the extreme for years. A tick inside a band with liquidity was paid for in PLEA and the guard drops to it at once. Until the next buy brings spot back from a drained tick, `rebalance()` places no wall (it still redeems claims and closes a wall that is due), whatever limit the seller chose inside the liquidity-free region.
 
 ---
 
@@ -223,7 +223,7 @@ Then:
    forge script script/MineSalt.s.sol --rpc-url $RPC --private-key $KEY --broadcast
    ```
 
-4. **Open trading.** `PleaLaunch.seed()` creates the pool at a 14,000 IMD market cap (5,700 on the Sepolia runs) and starts the Cabal. The owner may call it any time, and anyone may call it once `START` has passed.
+4. **Open trading.** `PleaLaunch.seed()` creates the pool at a 14,000 IMD market cap (5,700 on the Sepolia runs; at least that, within one 60-tick spacing: the band is aligned to the grid on the PLEA-only side) and starts the Cabal. PLEA's current owner may call it any time, and anyone may call it once `START` has passed.
 
 **Ethereum mainnet settings** (`launch.json` on this branch, `mainnet`; `testnet7` is the same code with the Sepolia settings (run 7), `testnet6` run 6's, `testnet4` run 4's (launch #1466), `testnet3` run 3's (launch #1426), `testnet` run 2's):
 
@@ -294,7 +294,7 @@ The mainnet gas pass (escaping only the plea texts in the oracle question, unche
 - **The oracle callback is kept small.** Mainnet gives it 200k gas, so it only stores the signed score. Points are recorded separately (`record`, or `closeSeason` with a list of plea ids).
 - **Cashback can't be skipped by a low gas limit.** A swap must reach the hook with the credit gas plus a 1M reserve, or it reverts. A wallet's gas estimate therefore always includes the sIMD credit, and only a credit that itself reverts falls back to plain IMD.
 - **Signatures:** a plain ECDSA signature is accepted first, then ERC-1271, so an oracle key with an EIP-7702 delegation still verifies.
-- **The very first buy** after trading opens may find no IMD in the PoolManager yet. That one trade's cashback, owner and prize shares then go to pool liquidity instead of reverting.
+- **The very first buy** after trading opens may find no IMD in the PoolManager yet. That one trade's cashback, owner and prize shares then go to pool liquidity instead of reverting (a buy whose fee rounds to zero does not count as that first buy). A later buy larger than about 66× the IMD the PoolManager holds at that moment is paid those shares as ERC-6909 IMD claims instead (the swapper's input settles after the hook runs); the owner's own first buy right after `seed` keeps that to the opening minutes.
 
 ---
 

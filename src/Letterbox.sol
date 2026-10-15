@@ -23,6 +23,7 @@ interface ISeasonsForLetters {
     function BONUS_SEASONS() external view returns (uint256);
     function BONUS_PER_SEASON() external view returns (uint256);
     function pointsFor(address wallet, uint8 score) external view returns (uint8);
+    function pointsOf(uint256 pleaId) external view returns (uint8);
 
     struct Entry {
         address wallet;
@@ -217,7 +218,7 @@ contract Letterbox is ReentrancyGuardTransient {
 
     /// @notice Sets the caller's display name: 3-20 characters of a-z, 0-9 and _, unique. An empty
     /// name clears it. Reserved: cabal, admin, imd, plea, owner. A `NAME <name>` letter does the same.
-    function setName(string calldata name) external {
+    function setName(string calldata name) external nonReentrant {
         _setName(msg.sender, bytes(name));
     }
 
@@ -329,10 +330,17 @@ contract Letterbox is ReentrancyGuardTransient {
             uint256 half = bal * MAX_SHARE_BPS / BPS;
             if (amount > half) amount = half;
         }
+        // The site's box pays the auto-sell fee from the sale, so its appeal must be worth the floor
+        // too (an appeal of a small plea made straight at the gate, which has no floor, is refused
+        // here rather than delivered for nothing). A letter's appeal pays no fee and goes through.
+        if ((flags & BY_LETTER) == 0) _requireWorthTheFee(amount);
         (uint256 feeImd, uint256 maxFeePlea) = feesFor(true);
-        // The fees may take 10% of the balance, or up to the appeal's own amount when that is more:
-        // whoever could plead by letter (a plea worth at least 0.70 IMD) can always appeal by letter.
-        if (maxFeePlea * BPS > bal * MAX_FEE_SHARE_BPS && maxFeePlea > amount) revert FeeTooHigh(maxFeePlea, bal);
+        // The fees may take 10% of the balance, or up to the original plea's amount when that is more
+        // (the appeal itself may be clamped under the fee's worth by the first fee sale): whoever
+        // could plead by letter (a plea worth at least 0.70 IMD) can always appeal by letter.
+        if (maxFeePlea * BPS > bal * MAX_FEE_SHARE_BPS && maxFeePlea > originalAmount) {
+            revert FeeTooHigh(maxFeePlea, bal);
+        }
         plea.courtTake(writer, amount + maxFeePlea);
         _approveGate(maxFeePlea, true);
         uint256 feePlea;
@@ -561,7 +569,9 @@ contract Letterbox is ReentrancyGuardTransient {
                 string.concat(head, p.isAppeal ? "UPHELD" : "DENIED", vs, _escrowNote(id), unicode" · ", _next(w, id));
         }
         if (lapsed) {
-            return string.concat(head, "LAPSED", vs, unicode" · ", _points(w, id, p), unicode" · ", _next(w, id));
+            return string.concat(
+                head, "LAPSED", vs, unicode" · ", _points(w, id, p), _escrowNote(id), unicode" · ", _next(w, id)
+            );
         }
         return string.concat(head, "NO VERDICT", _escrowNote(id), unicode" · ", _next(w, id));
     }
@@ -627,7 +637,7 @@ contract Letterbox is ReentrancyGuardTransient {
         if (e.writer == address(0)) return "";
         return
             e.open
-                ? unicode" · call settle or send a letter to get your PLEA back"
+                ? unicode" · call settle to get your PLEA back (a new plea waits for the cooldown)"
                 : unicode" · PLEA and tip returned";
     }
 
@@ -637,9 +647,11 @@ contract Letterbox is ReentrancyGuardTransient {
     function _points(address w, uint256 id, CabalGate.Plea memory p) internal view returns (string memory) {
         (bool held, bool sustained, uint8 lowest) = _standing(id);
         if (sustained) return "no points: an objection was sustained";
-        string memory pts =
-            string.concat("+", Strings.toString(seasons.pointsFor(w, lowest < p.score ? lowest : p.score)), " points");
-        if (!seasons.recorded(id)) {
+        bool isRecorded = seasons.recorded(id);
+        // A recorded plea shows the points Seasons counted; an unrecorded one the points it would earn now.
+        uint8 points = isRecorded ? seasons.pointsOf(id) : seasons.pointsFor(w, lowest < p.score ? lowest : p.score);
+        string memory pts = string.concat("+", Strings.toString(points), " points");
+        if (!isRecorded) {
             if (!held) return string.concat(pts, " once recorded");
             uint256 until = uint256(p.verdictAt) + OBJECTION_WINDOW;
             return block.timestamp <= until
