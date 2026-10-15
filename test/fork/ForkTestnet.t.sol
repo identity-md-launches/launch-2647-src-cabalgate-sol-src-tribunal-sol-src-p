@@ -481,7 +481,7 @@ contract ForkTestnetTest is Test {
         gate.executeSell(0);
         _warp(_now() + 4 hours + 1);
         (uint256 id2, bytes32 r2) = plead(a);
-        answer(r2, 41);
+        answer(r2, 45); // run 7: the second plea, at a gain after the first sale, needs 42
         vm.prank(a);
         gate.executeSell(0);
         seasons.record(id1);
@@ -490,7 +490,7 @@ contract ForkTestnetTest is Test {
         seasons.closeSeason(new uint256[](0)); // season 0: nobody qualified, its bonus is burned
         assertEq(seasons.bonusBurned(), 10_000_000e18);
         uint256 before = plea.balanceOf(a);
-        seasons.closeSeason(new uint256[](0)); // season 1: a has 81 points
+        seasons.closeSeason(new uint256[](0)); // season 1: a has 85 points
         assertEq(plea.balanceOf(a) - before, 450_000e18);
         assertEq(seasons.bonusBurned(), 10_000_000e18 + 9_550_000e18);
         assertEq(plea.balanceOf(address(seasons)), 40_000_000e18);
