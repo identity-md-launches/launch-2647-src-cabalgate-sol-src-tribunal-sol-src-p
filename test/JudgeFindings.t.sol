@@ -29,7 +29,8 @@ contract JudgeFindingsTest is Fixture {
             address w = makeAddr(string.concat("whale", vm.toString(i)));
             whales.push(w);
             fund(w);
-            buy(w, 100e18);
+            // 100 IMD on the Sepolia seed (5,700 IMD); the same share of the curve on a larger seed.
+            buy(w, 100e18 * hook.MARKET_CAP_IMD() / 5_700e18);
         }
         skip(1 days);
         keepAlive(bob); // the dead-man clock starts here; tests may skip another day

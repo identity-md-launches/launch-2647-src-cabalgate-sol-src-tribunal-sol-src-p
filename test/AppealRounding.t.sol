@@ -72,7 +72,8 @@ contract AppealRoundingTest is Fixture {
     }
 
     function test_cappedMinimumSitePleaCanAppealAfterFeeSale() public {
-        buy(alice, 1_000e18);
+        // 1,000 IMD on the Sepolia seed (5,700 IMD); the same share of the curve on a larger seed.
+        buy(alice, 1_000e18 * hook.MARKET_CAP_IMD() / 5_700e18);
         uint256 originalBalance = plea.balanceOf(alice);
         uint256 amount = gate.MAX_SELL();
         assertGt(originalBalance / 100, amount);
