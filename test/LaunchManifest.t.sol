@@ -44,9 +44,9 @@ abstract contract ManifestFixture is Test {
     /// @dev imd/acc's mainnet Stacker (launch #1409, 2026-10-12).
     address constant STACKER = 0x06909F672301F28A810f78cfe7a754851269F4F0;
     /// @dev The IMD seat NFT (identity.md), read by Seasons for the points multiplier.
-    address constant SEAT = 0x0000EC93127BAa929e58E97DD0095a2bfb38EC1d;
-    /// @dev Placeholder until launch.json has it.
-    uint256 constant START = 1791817200;
+    address constant SEAT = 0x0000eC93127BAA929E58E97dd0095A2BFb38ec1D;
+    /// @dev launch.json's placeholder (2026-10-26 12:00 UTC) until the user chooses START.
+    uint256 constant START = 1793016000;
     uint256 constant SEASON = 15 days;
     uint256 constant CREDIT_GAS = 400_000;
     bool constant MINT_ORACLE_FEE = false;
@@ -225,7 +225,8 @@ contract AtomicManifestTest is ManifestFixture {
     function test_launchJsonEncodesOracleMintFlagAsStaticWord() public view {
         string memory json = vm.readFile("launch.json");
         string memory flag = vm.parseJsonString(json, ".contracts[4].constructorArgs[10]");
-        assertEq(flag, "1", "the Sepolia mint flag must be the static bool word 1");
+        // Mainnet: the Letterbox buys the oracle fee with PLEA, so the flag is the static bool word 0.
+        assertEq(flag, MINT_ORACLE_FEE ? "1" : "0", "the mint flag must be the static bool word 0 or 1");
         assertEq(abi.encode(vm.parseUint(flag)), abi.encode(MINT_ORACLE_FEE));
     }
 
