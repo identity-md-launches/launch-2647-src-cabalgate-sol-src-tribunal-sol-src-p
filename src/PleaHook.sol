@@ -79,15 +79,11 @@ contract PleaHook {
     uint256 public constant LAUNCH_WINDOW = 90 minutes;
     uint256 public constant LAUNCH_EXTRA_BPS = 7_000; // 70% -> 0% linear, to pool liquidity
     uint256 public constant LAUNCH_MAX_BUY = 5_000_000e18;
-<<<<<<< HEAD
-    /// @notice The seed's market cap: 14,000 IMD on mainnet (5,700 on the Sepolia runs).
-    uint256 public constant MARKET_CAP_IMD = 14_000e18;
-=======
     /// @dev Below this much IMD in the PoolManager a buy's unfunded payouts join liquidity (2 IMD covers
     /// the 1.5% payouts of the largest buy the launch window allows).
     uint256 public constant PAYOUT_RESERVE = 2e18;
-    uint256 public constant MARKET_CAP_IMD = 5_700e18;
->>>>>>> testnet7
+    /// @notice The seed's market cap: 14,000 IMD on mainnet (5,700 on the Sepolia runs).
+    uint256 public constant MARKET_CAP_IMD = 14_000e18;
     uint256 public constant CAP_FLOOR = 900_000e18;
     /// @notice The cap may travel from the seeded inventory down to `CAP_FLOOR` in this long at the
     /// fastest; the daily allowance is fixed at seed (`capDecayPerDay`). It only ever follows buys.
