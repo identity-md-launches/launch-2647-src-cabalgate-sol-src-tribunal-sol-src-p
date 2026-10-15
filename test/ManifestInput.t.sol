@@ -28,7 +28,7 @@ contract ManifestInputTest is ManifestFixture {
         assertEq(address(tribunal.seasons()), deployed[2]);
         assertEq(address(tribunal.imd()), IMD);
         assertEq(address(tribunal.oracleAsset()), ORACLE_ASSET);
-        assertTrue(tribunal.mintOracleFee());
+        assertEq(tribunal.mintOracleFee(), MINT_ORACLE_FEE);
         assertEq(tribunal.oracleSigner(), SIGNER);
     }
 

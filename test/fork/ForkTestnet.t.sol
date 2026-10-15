@@ -266,7 +266,7 @@ contract ForkTestnetTest is Test {
         assertEq(plea.hook(), address(hook));
         assertEq(plea.balanceOf(address(seasons)), 60_000_000e18);
         assertEq(hook.creditGas(), CREDIT_GAS);
-        assertApproxEqRel(hook.capDecayPerDay(), (hook.inventoryCap() - hook.CAP_FLOOR()) / 25, 1e15, "25-day decay");
+        assertApproxEqRel(hook.capDecayPerDay(), (hook.inventoryCap() - hook.CAP_FLOOR()) / 15, 1e15, "15-day decay");
         assertTrue(gate.cabalAlive());
         console2.log("capDecayPerDay", hook.capDecayPerDay());
         console2.log("wallGuardTick", int256(hook.wallGuardTick()));
