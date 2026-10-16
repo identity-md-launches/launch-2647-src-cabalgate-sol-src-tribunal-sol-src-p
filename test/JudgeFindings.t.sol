@@ -207,6 +207,27 @@ contract JudgeFindingsTest is Fixture {
         uint256 id = gate.submitSell(bal / 2, "exactly half");
         assertEq(gate.getPlea(id).amount, bal / 2);
     }
+
+    /// Run 8.5's launch audit (L85-M-1): the share bands' edges are exact. At most 20% (35%) of the
+    /// balance scores the better band and one wei over does not, on a balance that is not a multiple
+    /// of 10,000.
+    function test_oneWeiOverAShareBandScoresTheNextBand() public {
+        address dave = makeAddr("dave");
+        fund(dave);
+        buy(dave, 1e18);
+        uint256 bal = plea.balanceOf(dave);
+        if (bal % 10_000 == 0) {
+            vm.prank(dave);
+            plea.transfer(bob, 1);
+            bal -= 1;
+        }
+        assertGt(bal % 10_000, 0);
+        uint256 fifth = bal / 5;
+        uint256 band35 = bal * 7 / 20;
+        assertEq(gate.factScore(dave, fifth) - gate.factScore(dave, fifth + 1), 7, "one wei over 20%");
+        assertEq(gate.factScore(dave, band35) - gate.factScore(dave, band35 + 1), 6, "one wei over 35%");
+        assertEq(gate.factScore(dave, bal * 2_000 / 10_000 + 1), gate.factScore(dave, bal * 2_001 / 10_000));
+    }
 }
 
 interface IERC20Like {

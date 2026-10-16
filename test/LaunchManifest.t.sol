@@ -250,6 +250,30 @@ contract AtomicManifestTest is ManifestFixture {
         );
         assertEq(committed, tribunalHash);
     }
+
+    /// Run 8.5's launch audit (L85-F-1): each address word in launch.json is the address these tests
+    /// deploy with, written in its EIP-55 form or all lowercase (a strict parser refuses any other case).
+    function test_launchJsonAddressWordsAreTheTestedAddressesInAValidCase() public view {
+        string memory json = vm.readFile("launch.json");
+        _assertAddressWord(json, ".contracts[1].constructorArgs[1]", INTAKE);
+        _assertAddressWord(json, ".contracts[1].constructorArgs[2]", ORACLE_ASSET);
+        _assertAddressWord(json, ".contracts[1].constructorArgs[3]", IMD);
+        _assertAddressWord(json, ".contracts[1].constructorArgs[4]", SIGNER);
+        _assertAddressWord(json, ".contracts[2].constructorArgs[2]", IMD);
+        _assertAddressWord(json, ".contracts[2].constructorArgs[3]", SEAT);
+        _assertAddressWord(json, ".contracts[4].constructorArgs[4]", POOL_MANAGER);
+        _assertAddressWord(json, ".contracts[4].constructorArgs[5]", IMD);
+        _assertAddressWord(json, ".contracts[4].constructorArgs[6]", STACKER);
+        _assertAddressWord(json, ".contracts[4].constructorArgs[9]", ORACLE_ASSET);
+    }
+
+    function _assertAddressWord(string memory json, string memory key, address expected) internal pure {
+        bytes32 word = keccak256(bytes(vm.parseJsonString(json, key)));
+        string memory checksummed = vm.toString(expected);
+        assertTrue(
+            word == keccak256(bytes(checksummed)) || word == keccak256(bytes(vm.toLowercase(checksummed))), key
+        );
+    }
 }
 
 contract RehearsalManifestTest is ManifestFixture {

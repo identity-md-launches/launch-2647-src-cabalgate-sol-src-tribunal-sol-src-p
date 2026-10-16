@@ -254,7 +254,13 @@ contract CabalGate is OracleAttestationConsumer {
     /// escrows the plea first, so the Letterbox passes the balance it read before).
     function _factScore(address seller, uint256 amount, uint256 bal) internal view returns (uint8) {
         if (bal == 0) return 0;
-        return _factScoreAt(seller, amount, amount * 10_000 / bal);
+        return _factScoreAt(seller, amount, _shareBps(amount, bal));
+    }
+
+    /// @dev The share in basis points, rounded up, so a band's edge is exact: at most 20% scores 16
+    /// and one wei over does not (run 8.5's launch audit, L85-M-1).
+    function _shareBps(uint256 amount, uint256 bal) internal pure returns (uint256) {
+        return (amount * 10_000 + bal - 1) / bal;
     }
 
     /// @dev `shareBps` feeds the share band: a plea's own share, or for an appeal the lesser of its
@@ -419,9 +425,9 @@ contract CabalGate is OracleAttestationConsumer {
         if (originalId == 0 || bal == 0) {
             f = _factScore(seller, amount, bal);
         } else {
-            uint256 share = amount * 10_000 / bal;
+            uint256 share = _shareBps(amount, bal);
             uint256 oBal = pleaBalance[originalId];
-            uint256 oShare = oBal == 0 ? share : uint256(pleas[originalId].amount) * 10_000 / oBal;
+            uint256 oShare = oBal == 0 ? share : _shareBps(pleas[originalId].amount, oBal);
             f = _factScoreAt(seller, amount, share < oShare ? share : oShare);
         }
         uint256 need = PASS_MARK - f;
