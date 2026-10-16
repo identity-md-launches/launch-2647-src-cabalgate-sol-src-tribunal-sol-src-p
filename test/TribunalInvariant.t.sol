@@ -29,7 +29,7 @@ contract TribunalSequenceHandler is Test {
         uint8 lowest;
         bool sustained;
         bool recorded;
-        uint256 pending;
+        uint256[2] pending;
         address lastObjector;
     }
 
@@ -122,7 +122,7 @@ contract TribunalSequenceHandler is Test {
         OracleAttestation.Attestation memory a = _attestation(score);
         assertTrue(intake.complete(rid, 0, abi.encode(rid, a, _sign(address(gate), a))), "gate callback");
         pleaIds.push(id);
-        pleas[id] = PleaModel(who, uint64(block.timestamp), score, need, 0, 255, false, false, 0, address(0));
+        pleas[id] = PleaModel(who, uint64(block.timestamp), score, need, 0, 255, false, false, [uint256(0), 0], address(0));
         lastVerdict = uint64(block.timestamp);
     }
 
@@ -131,16 +131,25 @@ contract TribunalSequenceHandler is Test {
         PleaModel storage p = pleas[id];
         address who = objectors[bound(actorSeed, 0, 3)];
         bytes memory error;
-        bool stale = p.pending != 0 && _stale(objections[p.pending]);
+        // Up to two pending objections from different wallets (round 5, R5-A1-1); stale ones are
+        // voided by the filing itself.
+        bool stale0 = p.pending[0] != 0 && _stale(objections[p.pending[0]]);
+        bool stale1 = p.pending[1] != 0 && _stale(objections[p.pending[1]]);
+        uint256 live0 = stale0 ? 0 : p.pending[0];
+        uint256 live1 = stale1 ? 0 : p.pending[1];
+        uint256 waiting = (live0 != 0 ? 1 : 0) + (live1 != 0 ? 1 : 0);
         if (block.timestamp > uint256(p.approvedAt) + WINDOW) {
             error = abi.encodeWithSelector(Tribunal.WindowClosed.selector, id);
         } else if (p.recorded) {
             error = abi.encodeWithSelector(Tribunal.AlreadyRecorded.selector, id);
-        } else if (p.pending != 0 && !stale) {
-            error = abi.encodeWithSelector(Tribunal.ObjectionPending.selector, p.pending);
         } else if (p.sustained || p.count == 2) {
             error = abi.encodeWithSelector(Tribunal.CaseClosed.selector, id);
-        } else if (p.count != 0 && p.lastObjector == who) {
+        } else if (p.count + waiting >= 2) {
+            error = abi.encodeWithSelector(Tribunal.ObjectionPending.selector, live0 != 0 ? live0 : live1);
+        } else if (
+            (p.count != 0 && p.lastObjector == who) || (live0 != 0 && objections[live0].actor == who)
+                || (live1 != 0 && objections[live1].actor == who)
+        ) {
             error = abi.encodeWithSelector(Tribunal.SameObjector.selector);
         }
         if (error.length != 0) {
@@ -152,14 +161,15 @@ contract TribunalSequenceHandler is Test {
         vm.prank(who);
         uint256 oid = tribunal.object(id, "Please re-examine the actual text against the craft definition.");
         assertEq(oid, opened + 1, "failed attempts cannot allocate an id");
-        if (stale) _void(p.pending);
+        if (stale0) _void(p.pending[0]);
+        if (stale1) _void(p.pending[1]);
         ++opened;
         deposits[who] += STAKE;
         if (!mints) feesPaid[who] += FEE;
         bytes32 rid = tribunal.objection(oid).intakeId;
         objections[oid] =
             ObjectionModel(id, who, uint64(block.timestamp), rid, Tribunal.Ruling.Pending, false, false, 0);
-        p.pending = oid;
+        p.pending[p.pending[0] == 0 ? 0 : 1] = oid;
         assertEq(intake.failureOf(rid), tribunal.onObjectionFailure.selector, "Intake v2 failure hook");
         (address payer, address target, bytes4 selector,) = intake.requests(rid);
         assertEq(payer, address(tribunal));
@@ -188,11 +198,11 @@ contract TribunalSequenceHandler is Test {
         bool sustain = uint256(score) + 2 < p.need;
         o.score = score;
         o.ruling = sustain ? Tribunal.Ruling.Sustained : Tribunal.Ruling.Overruled;
-        p.pending = 0;
+        _clear(p, oid);
         ++p.count;
         p.lastObjector = o.actor;
         if (score < p.lowest) p.lowest = score;
-        p.sustained = sustain;
+        if (sustain) p.sustained = true; // a second pending objection may still be ruled after it
         ++rulings;
     }
 
@@ -356,7 +366,12 @@ contract TribunalSequenceHandler is Test {
             Tribunal.Case memory actual = tribunal.caseOf(id);
             assertEq(actual.count, p.count);
             assertLe(p.count, 2);
-            assertEq(actual.pendingId, p.pending);
+            assertEq(actual.pending[0], p.pending[0]);
+            assertEq(actual.pending[1], p.pending[1]);
+            if (p.pending[0] != 0 && p.pending[1] != 0) {
+                assertTrue(objections[p.pending[0]].actor != objections[p.pending[1]].actor, "two wallets");
+                assertEq(p.count, 0, "two pending objections only on an unruled case");
+            }
             assertEq(actual.lastObjector, p.lastObjector);
             assertEq(actual.sustained, p.sustained);
             (bool held, bool sustained, uint8 lowest) = tribunal.standing(id);
@@ -368,10 +383,7 @@ contract TribunalSequenceHandler is Test {
             assertEq(score, p.score, "objections cannot rewrite the sale's original verdict");
             assertTrue(approved);
             assertEq(at, p.approvedAt);
-            if (p.sustained) {
-                assertEq(p.pending, 0);
-                assertFalse(p.recorded);
-            }
+            if (p.sustained) assertFalse(p.recorded);
         }
     }
 
@@ -411,13 +423,19 @@ contract TribunalSequenceHandler is Test {
 
     function _void(uint256 oid) internal {
         objections[oid].ruling = Tribunal.Ruling.Void;
-        pleas[objections[oid].pleaId].pending = 0;
+        _clear(pleas[objections[oid].pleaId], oid);
         ++voids;
+    }
+
+    function _clear(PleaModel storage p, uint256 oid) internal {
+        if (p.pending[0] == oid) p.pending[0] = 0;
+        else if (p.pending[1] == oid) p.pending[1] = 0;
     }
 
     function _held(PleaModel storage p) internal view returns (bool) {
         if (p.sustained) return false;
-        if (p.pending != 0 && !_stale(objections[p.pending])) return true;
+        if (p.pending[0] != 0 && !_stale(objections[p.pending[0]])) return true;
+        if (p.pending[1] != 0 && !_stale(objections[p.pending[1]])) return true;
         return p.count < 2 && block.timestamp <= uint256(p.approvedAt) + WINDOW;
     }
 

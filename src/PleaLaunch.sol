@@ -25,8 +25,12 @@ interface IPLEAForLaunch {
 /// fully determined by the committed code, so front-running any of these calls changes nothing but,
 /// for the hook, the address: the salt is the caller's, so a front-runner may land the same hook at
 /// another flag-valid address (the Letterbox and the Tribunal use salt 0 and have fixed addresses). A zero Tribunal hash
-/// launches with objections off for good. `seed` opens trading: the owner may call it any time,
-/// anyone once `START` has passed.
+/// launches with objections off for good. `seed` opens trading once the hook and the Letterbox exist:
+/// the owner may call it any time, anyone once `START` has passed.
+/// @dev Round 5, R5-A2-1: the Letterbox's (and the Tribunal's) oracle-fee settings are checked here,
+/// in the launch transaction, wherever they do not depend on the chain; the one that does (no minted
+/// fee on chain id 1) stops `deployLetterbox`, and `seed` waits for the Letterbox, so trading never
+/// opens on a launch whose letters could never work.
 contract PleaLaunch {
     error WrongInitCode();
     error HookDeployFailed();
@@ -40,6 +44,10 @@ contract PleaLaunch {
     error TribunalOff();
     error TribunalAlreadyDeployed();
     error TribunalDeployFailed();
+    error OracleAssetNotImd();
+    error MintWithPoolImd();
+    error OracleAssetMismatch();
+    error LetterboxNotDeployed();
 
     event HookDeployed(address indexed hook, bytes32 salt);
     event LetterboxDeployed(address indexed letterbox);
@@ -99,6 +107,10 @@ contract PleaLaunch {
         mintOracleFee = mintOracleFee_;
         letterboxCodeHash = letterboxCodeHash_;
         tribunalCodeHash = tribunalCodeHash_;
+        // The Letterbox's constructor refusals that hold on every chain (it repeats them).
+        if (!mintOracleFee_ && oracleAsset_ != imd_) revert OracleAssetNotImd();
+        if (mintOracleFee_ && oracleAsset_ == imd_) revert MintWithPoolImd();
+        if (IGate(gate_).oracleAsset() != oracleAsset_) revert OracleAssetMismatch();
         address owner_ = IPLEAForLaunch(plea_).owner();
         owner = owner_;
         hookInitCodeHash = keccak256(
@@ -178,8 +190,10 @@ contract PleaLaunch {
     }
 
     /// @notice Opens trading: creates the pool (90-min launch window starts) and the first Cabal's era.
+    /// The hook and the Letterbox must exist (anyone may deploy either with the committed code).
     function seed() external {
         if (hook == address(0)) revert HookNotDeployed();
+        if (letterbox == address(0)) revert LetterboxNotDeployed();
         // The early-seed power follows PLEA's current owner (Ownable2Step), not the launch-time snapshot.
         if (msg.sender != IPLEAForLaunch(plea).owner() && block.timestamp < START) revert TooEarly(START);
         // The agreed mainnet clock, checked on the live chain rather than in CabalGate's constructor:

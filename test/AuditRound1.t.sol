@@ -405,6 +405,28 @@ contract AuditRound1Test is Fixture {
         return bytes4(reason);
     }
 
+    /// R5-A1-2: the profit bands compare exactly, with no rounded percentage: a gain just over an
+    /// edge scores the next band (50% -> 12, 50.9% -> 10; 200% -> 10, 200.9% -> 8; 500% -> 8,
+    /// 500.9% -> 6; 1,000% -> 6, 1,000.9% -> 4). The buy record and the price are pinned.
+    function test_profitBandEdgesAreExact() public {
+        address s = makeAddr("edgeSeller");
+        uint256 held = 1_000_000e18;
+        deal(address(plea), s, held);
+        vm.mockCall(
+            address(hook), abi.encodeWithSelector(hook.basisOf.selector, s), abi.encode(100e18, held, block.timestamp)
+        );
+        vm.mockCall(address(hook), abi.encodeWithSelector(hook.price24hAgo.selector), abi.encode(uint256(0)));
+        uint256[8] memory values = [uint256(150e18), 150.9e18, 300e18, 300.9e18, 600e18, 600.9e18, 1100e18, 1100.9e18];
+        uint8[8] memory points = [12, 10, 10, 8, 8, 6, 6, 4];
+        for (uint256 i; i < 8; ++i) {
+            // value = held * price / Q96, rounded down: round the price up so the value is not under it
+            uint256 price = (values[i] * (1 << 96) + held - 1) / held;
+            vm.mockCall(address(hook), abi.encodeWithSelector(hook.latestPrice.selector), abi.encode(price));
+            // share 10%: 16; held since now: 0; no 24h history: 5
+            assertEq(gate.factScore(s, held / 10), 16 + 0 + points[i] + 5, "profit band edge");
+        }
+    }
+
     /// R7-M-1: the delivery floor is 95% of the snapshot value after the hook's 2% sale fees, so an
     /// approved letter still sells when spot sits 4% under the hour's snapshot (the old gross floor
     /// refused anything past ~2.8%), and is still refused at 6%.

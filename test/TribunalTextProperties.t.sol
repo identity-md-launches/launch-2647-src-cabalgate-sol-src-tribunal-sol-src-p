@@ -74,7 +74,7 @@ contract TribunalTextPropertiesTest is SepoliaFixture {
         assertEq(imd.balanceOf(bob), cash);
         assertEq(oimd.totalSupply(), feeSupply);
         assertEq(tribunal.nextId(), 1);
-        assertEq(tribunal.caseOf(pid).pendingId, 0);
+        assertEq(tribunal.caseOf(pid).pending[0], 0);
     }
 
     function test_malformedUtf8ControlsAndInvisibleCharactersAreRejected() public {

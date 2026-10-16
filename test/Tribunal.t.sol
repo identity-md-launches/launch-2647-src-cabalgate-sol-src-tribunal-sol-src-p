@@ -228,10 +228,17 @@ contract TribunalTest is Fixture {
         uint256 oid = objectTo(bob, id);
         skip(20 minutes);
         // Bob's objection is 20 minutes old (stale next second); the window closes at the same time.
-        objectFails(carol, id, abi.encodeWithSelector(Tribunal.ObjectionPending.selector, oid));
+        // Carol no longer waits for it (round 5, R5-A1-1): she files beside it in the last second.
+        uint256 oidC = objectTo(carol, id);
+        assertEq(tribunal.caseOf(id).pending[0], oid);
+        assertEq(tribunal.caseOf(id).pending[1], oidC);
         skip(1);
         assertEq(uint8(ruling(oid)), uint8(Tribunal.Ruling.Pending), "nobody voided it yet");
         (bool held,,) = standing(id);
+        assertTrue(held, "carol's objection holds the points");
+        assertEq(tribunal.status(id), string.concat("Plea #", vm.toString(id), unicode" · OBJECTION #", vm.toString(oidC), " pending"));
+        skip(20 minutes);
+        (held,,) = standing(id);
         assertFalse(held, "a stale objection never holds the points");
         // A request the Intake completed without an answer (v1 style, no failure call) is stale at
         // once: the next objector voids it and takes the slot inside the window.
@@ -243,7 +250,7 @@ contract TribunalTest is Fixture {
         uint256 oid3 = objectTo(dave, id2);
         assertEq(uint8(ruling(oid2)), uint8(Tribunal.Ruling.Void));
         assertEq(uint8(ruling(oid3)), uint8(Tribunal.Ruling.Pending));
-        assertEq(tribunal.caseOf(id2).pendingId, oid3);
+        assertEq(tribunal.caseOf(id2).pending[0], oid3);
         tribunal.settle(oid2); // bob's stake comes back
     }
 
@@ -265,10 +272,11 @@ contract TribunalTest is Fixture {
     function test_atMostTwoRulingsFromDifferentWallets() public {
         uint256 id = approvedBy(alice);
         uint256 o1 = objectTo(bob, id);
-        objectFails(carol, id, abi.encodeWithSelector(Tribunal.ObjectionPending.selector, o1));
+        objectFails(bob, id, Tribunal.SameObjector.selector);
         assertTrue(rule(o1, 42));
         objectFails(bob, id, Tribunal.SameObjector.selector);
         uint256 o2 = objectTo(carol, id);
+        objectFails(dave, id, abi.encodeWithSelector(Tribunal.ObjectionPending.selector, o2));
         assertTrue(rule(o2, 39));
         (bool held,, uint8 lowest) = standing(id);
         assertFalse(held, "two rulings: nothing more can be filed, points may be recorded");
@@ -276,6 +284,81 @@ contract TribunalTest is Fixture {
         objectFails(dave, id, abi.encodeWithSelector(Tribunal.CaseClosed.selector, id));
         seasons.record(id); // inside the window, yet free
         assertEq(seasons.bestOf(0, alice)[0], 39);
+    }
+
+    /// @dev Round 5, R5-A1-1: two objections from different wallets may be pending at once, so a
+    /// sham filed in the window's last second cannot keep a rival out. A third waits for a void.
+    function test_twoObjectionsMayBePendingAtOnce() public {
+        uint256 id = approvedBy(alice);
+        uint256 o1 = objectTo(bob, id);
+        uint256 o2 = objectTo(carol, id);
+        objectFails(dave, id, abi.encodeWithSelector(Tribunal.ObjectionPending.selector, o1));
+        assertEq(
+            tribunal.status(id),
+            string.concat(
+                "Plea #", vm.toString(id), unicode" · OBJECTIONS #", vm.toString(o1), " and #", vm.toString(o2), " pending"
+            )
+        );
+        // bob's panel gives no answer: his slot frees up and dave takes it
+        intake.fail(tribunal.objection(o1).intakeId, 2, bytes32("disagreed"), 3, 28);
+        assertEq(uint8(ruling(o1)), uint8(Tribunal.Ruling.Void));
+        uint256 o3 = objectTo(dave, id);
+        assertEq(tribunal.caseOf(id).pending[0], o3);
+        assertEq(tribunal.caseOf(id).pending[1], o2);
+        // the second ruling arrives first; then the first: both count, the lower score stands
+        assertTrue(rule(o3, 41));
+        assertTrue(rule(o2, 38));
+        Tribunal.Case memory c = tribunal.caseOf(id);
+        assertEq(c.count, 2);
+        assertEq(c.lowest, 38);
+        assertEq(c.lastObjector, carol);
+        assertEq(c.pending[0], 0);
+        assertEq(c.pending[1], 0);
+        objectFails(bob, id, abi.encodeWithSelector(Tribunal.CaseClosed.selector, id));
+        seasons.record(id);
+        assertEq(seasons.bestOf(0, alice)[0], 38);
+    }
+
+    /// @dev Round 5, R5-A1-1, the judge's sequence: a sham objection in the window's last second,
+    /// then a rival in the same second. The rival is accepted and gets its own ruling.
+    function test_aLastSecondShamLeavesTheRivalItsSlot() public {
+        uint256 id = approvedBy(alice);
+        vm.warp(gate.getPlea(id).verdictAt + WINDOW);
+        uint256 sham = objectTo(dave, id, "I object. Please look again at the plea and its score.");
+        uint256 rival = objectTo(bob, id);
+        assertTrue(rule(sham, 40)); // overruled
+        uint8 n = need(id);
+        assertTrue(rule(rival, n - 3)); // sustained: below the need by more than the margin
+        (bool held, bool sustained, uint8 lowest) = standing(id);
+        assertFalse(held);
+        assertTrue(sustained);
+        assertEq(lowest, n - 3);
+        vm.expectRevert(abi.encodeWithSelector(Seasons.ObjectionSustained.selector, id));
+        seasons.record(id);
+    }
+
+    /// @dev A sustain closes the case to new objections; one already pending is still ruled on its
+    /// own (its stake follows its own ruling) and cannot reopen the case.
+    function test_aSustainLeavesTheOtherPendingObjectionToItsOwnRuling() public {
+        uint256 id = approvedBy(alice);
+        uint256 o1 = objectTo(bob, id);
+        uint256 o2 = objectTo(carol, id);
+        uint8 n = need(id);
+        assertTrue(rule(o1, n - 3));
+        objectFails(dave, id, abi.encodeWithSelector(Tribunal.CaseClosed.selector, id));
+        (bool held, bool sustained,) = standing(id);
+        assertFalse(held, "sustained: nothing to wait for");
+        assertTrue(sustained);
+        assertTrue(rule(o2, 44));
+        assertEq(uint8(ruling(o2)), uint8(Tribunal.Ruling.Overruled));
+        Tribunal.Case memory c = tribunal.caseOf(id);
+        assertTrue(c.sustained, "a later overrule never reopens the case");
+        assertEq(c.count, 2);
+        assertEq(c.lowest, n - 3);
+        uint256 bobBefore = imd.balanceOf(bob);
+        tribunal.settle(o1);
+        tribunal.settle(o2);
+        assertEq(imd.balanceOf(bob) - bobBefore, 0.35e18, "sustained: bob's stake comes back");
     }
 
     function test_aSustainClosesTheCase() public {

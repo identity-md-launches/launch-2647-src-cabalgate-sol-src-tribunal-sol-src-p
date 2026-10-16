@@ -44,7 +44,8 @@ function signerOf(address launch) view returns (address) {
 /// the plea earns no points this season. Otherwise it is OVERRULED and the stake goes to the
 /// season's prize pot. A panel that gives no answer makes the objection VOID: the stake comes back,
 /// the oracle fee is spent, and the slot frees up while the window is open. At most
-/// `MAX_OBJECTIONS` rulings per plea, each from a different wallet; a sustain closes the case.
+/// `MAX_OBJECTIONS` objections per plea, each from a different wallet; the second need not wait for
+/// the first panel, so both may be pending at once. A sustain closes the case to new objections.
 /// @notice The sale is never touched: an approved plea sells on its normal schedule. Points wait:
 /// Seasons records a plea only once its window has closed and no objection is pending.
 /// @notice Objection rulings never reset the Cabal's dead-man; only plea verdicts do.
@@ -74,13 +75,16 @@ contract Tribunal is OracleAttestationConsumer, ReentrancyGuardTransient {
     }
 
     /// @dev One per plea. `count` and `lastObjector` cover rulings only (a void objection frees its
-    /// slot); `lowest` is the lowest score a panel gave (255 until one has).
+    /// slot); `lowest` is the lowest score a panel gave (255 until one has). `pending` holds the
+    /// objections waiting for a panel, at most two and from different wallets (0: an empty slot).
+    /// Round 5, R5-A1-1: with one pending slot, a sham filed in the window's last second kept every
+    /// rival out until the window had closed; now a rival files beside it.
     struct Case {
         uint8 count;
         uint8 lowest;
         bool sustained;
-        uint64 pendingId;
         address lastObjector;
+        uint64[2] pending;
     }
 
     error MintOnMainnet();
@@ -123,7 +127,7 @@ contract Tribunal is OracleAttestationConsumer, ReentrancyGuardTransient {
     uint256 public constant PENDING_EXPIRY = 20 minutes;
     uint256 public constant ORACLE_FEE = 0.5e18;
     uint256 public constant STAKE = 0.35e18;
-    /// @notice Rulings per plea; each must come from a different wallet.
+    /// @notice Objections per plea (ruled or pending); each must come from a different wallet.
     uint8 public constant MAX_OBJECTIONS = 2;
     /// @notice Sustained only when the new score is below the need by more than this (panel noise).
     uint8 public constant MARGIN = 2;
@@ -193,7 +197,8 @@ contract Tribunal is OracleAttestationConsumer, ReentrancyGuardTransient {
         // An excluded seller's plea earns no points and nobody may object to it: never held, even
         // while an objection filed before the exclusion (a PLEA handover) is still pending (R7-T-1).
         if (seasons.excluded(seller)) return (false, false, lowest);
-        if (c.pendingId != 0 && !_stale(objections[c.pendingId])) return (true, false, lowest);
+        (uint256 a, uint256 b) = _live(c);
+        if (a != 0 || b != 0) return (true, false, lowest);
         held = approved && c.count < MAX_OBJECTIONS && block.timestamp <= uint256(verdictAt) + OBJECTION_WINDOW;
     }
 
@@ -205,9 +210,11 @@ contract Tribunal is OracleAttestationConsumer, ReentrancyGuardTransient {
         if (seasons.excluded(seller)) return string.concat(head, "seller excluded: no points, nothing to object to");
         Case storage c = cases[pleaId];
         uint8 need = gate.getPlea(pleaId).need;
-        if (c.pendingId != 0 && !_stale(objections[c.pendingId])) {
-            return string.concat(head, "OBJECTION #", Strings.toString(c.pendingId), " pending");
+        (uint256 a, uint256 b) = _live(c);
+        if (a != 0 && b != 0) {
+            return string.concat(head, "OBJECTIONS #", Strings.toString(a), " and #", Strings.toString(b), " pending");
         }
+        if (a != 0 || b != 0) return string.concat(head, "OBJECTION #", Strings.toString(a | b), " pending");
         if (c.sustained) {
             return string.concat(
                 head,
@@ -238,7 +245,8 @@ contract Tribunal is OracleAttestationConsumer, ReentrancyGuardTransient {
     // ================================================================ objecting
 
     /// @notice Objects to approved plea `pleaId`: pays the oracle fee and the stake, asks a fresh
-    /// panel. Not the seller, not the owners Seasons excludes. One pending objection per plea.
+    /// panel. Not the seller, not the owners Seasons excludes. Rulings plus pending objections stay
+    /// within `MAX_OBJECTIONS`, every one from a different wallet; a stale pending one is voided first.
     function object(uint256 pleaId, string calldata text) external nonReentrant returns (uint256 id) {
         _validateText(text);
         (address seller,, bool approved, uint64 verdictAt) = gate.result(pleaId);
@@ -248,13 +256,18 @@ contract Tribunal is OracleAttestationConsumer, ReentrancyGuardTransient {
         if (seasons.excluded(seller)) revert SellerExcluded();
         if (msg.sender == seller || seasons.excluded(msg.sender)) revert NotEligible();
         Case storage c = cases[pleaId];
-        if (c.pendingId != 0) {
-            Objection storage prev = objections[c.pendingId];
-            if (!_stale(prev)) revert ObjectionPending(c.pendingId);
-            _void(c.pendingId, prev, 2, bytes32("stale"));
+        for (uint256 k; k < 2; ++k) {
+            uint256 prevId = c.pending[k];
+            if (prevId != 0 && _stale(objections[prevId])) _void(prevId, objections[prevId], 2, bytes32("stale"));
         }
+        (uint64 a, uint64 b) = (c.pending[0], c.pending[1]);
         if (c.sustained || c.count >= MAX_OBJECTIONS) revert CaseClosed(pleaId);
-        if (c.count != 0 && c.lastObjector == msg.sender) revert SameObjector();
+        uint256 waiting = (a != 0 ? 1 : 0) + (b != 0 ? 1 : 0);
+        if (c.count + waiting >= MAX_OBJECTIONS) revert ObjectionPending(a != 0 ? a : b);
+        if (
+            (c.count != 0 && c.lastObjector == msg.sender) || (a != 0 && objections[a].objector == msg.sender)
+                || (b != 0 && objections[b].objector == msg.sender)
+        ) revert SameObjector();
 
         id = nextId++;
         Objection storage o = objections[id];
@@ -263,7 +276,7 @@ contract Tribunal is OracleAttestationConsumer, ReentrancyGuardTransient {
         o.ruling = Ruling.Pending;
         o.filedAt = uint64(block.timestamp);
         o.text = text;
-        c.pendingId = uint64(id);
+        c.pending[a == 0 ? 0 : 1] = uint64(id);
 
         imd.safeTransferFrom(msg.sender, address(this), STAKE);
         if (mintOracleFee) IMintableFee(address(oracleAsset)).mint(address(this), ORACLE_FEE);
@@ -309,7 +322,7 @@ contract Tribunal is OracleAttestationConsumer, ReentrancyGuardTransient {
         o.newScore = uint8(score);
         o.ruling = sustained ? Ruling.Sustained : Ruling.Overruled;
         Case storage c = cases[pleaId];
-        c.pendingId = 0;
+        _clear(c, id);
         if (c.count == 0 || score < c.lowest) c.lowest = uint8(score);
         c.count += 1;
         c.lastObjector = o.objector;
@@ -360,10 +373,22 @@ contract Tribunal is OracleAttestationConsumer, ReentrancyGuardTransient {
 
     function _void(uint256 id, Objection storage o, uint8 status, bytes32 reason) internal {
         o.ruling = Ruling.Void;
-        Case storage c = cases[o.pleaId];
-        if (c.pendingId == id) c.pendingId = 0;
+        _clear(cases[o.pleaId], id);
         delete objectionOfIntake[o.intakeId];
         emit ObjectionVoid(id, o.pleaId, status, reason);
+    }
+
+    function _clear(Case storage c, uint256 id) internal {
+        if (c.pending[0] == id) c.pending[0] = 0;
+        else if (c.pending[1] == id) c.pending[1] = 0;
+    }
+
+    /// @dev The case's pending objections that can still be ruled (0: none in that slot).
+    function _live(Case storage c) internal view returns (uint256 a, uint256 b) {
+        a = c.pending[0];
+        b = c.pending[1];
+        if (a != 0 && _stale(objections[a])) a = 0;
+        if (b != 0 && _stale(objections[b])) b = 0;
     }
 
     function _stale(Objection storage o) internal view returns (bool) {

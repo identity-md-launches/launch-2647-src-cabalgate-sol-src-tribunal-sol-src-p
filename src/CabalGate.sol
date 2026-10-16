@@ -281,8 +281,9 @@ contract CabalGate is OracleAttestationConsumer {
             if (value < spent) {
                 score += 13;
             } else {
-                uint256 gainPct = (value - spent) * 100 / spent;
-                score += gainPct <= 50 ? 12 : gainPct <= 200 ? 10 : gainPct <= 500 ? 8 : gainPct <= 1000 ? 6 : 4;
+                // Exact band edges, no rounded percentage (round 5, R5-A1-2): a 50.9% gain is over 50%.
+                uint256 g = value - spent;
+                score += g * 2 <= spent ? 12 : g <= spent * 2 ? 10 : g <= spent * 5 ? 8 : g <= spent * 10 ? 6 : 4;
             }
         }
         uint256 ago = h.price24hAgo();

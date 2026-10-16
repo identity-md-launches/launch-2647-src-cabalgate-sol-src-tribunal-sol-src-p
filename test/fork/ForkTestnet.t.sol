@@ -68,7 +68,7 @@ contract ForkTestnetTest is Test {
     uint256 constant SEASON = 18_000;
     uint256 constant DEADMAN = 118_800;
     uint256 constant CREDIT_GAS = 1_300_000;
-    uint256 constant START = 1792162800;
+    uint256 constant START = 1792335600;
     uint256 constant SIGNER_KEY = 0xA11CE;
 
     IIntakeV2 intake = IIntakeV2(INTAKE);

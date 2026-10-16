@@ -53,6 +53,7 @@ interface IGate {
     function diedAt() external view returns (uint64);
     function SEASON() external view returns (uint256);
     function DEADMAN() external view returns (uint256);
+    function oracleAsset() external view returns (address);
     function begin() external;
     function result(uint256 id) external view returns (address seller, uint8 score, bool approved, uint64 verdictAt);
     function pleaText(uint256 id) external view returns (string memory);

@@ -36,12 +36,21 @@ contract LaunchTest is Test {
     }
 
     function deployAll(address poolManager) internal {
+        deployAll(poolManager, address(imd), false);
+    }
+
+    /// @dev `oracleAsset` is the gate's fee asset; the launch names `launchAsset` and `mint`.
+    function deployAll(address poolManager, address oracleAsset, bool mint) internal {
+        deployAll(poolManager, oracleAsset, oracleAsset, mint);
+    }
+
+    function deployAll(address poolManager, address oracleAsset, address launchAsset, bool mint) internal {
         MockIntake intake = MockIntake(ArtifactDeployment.deploy("Mocks.sol:MockIntake", abi.encode(imd)));
         plea = PLEA(ArtifactDeployment.deploy("PLEA.sol:PLEA", abi.encode(OWNER)));
         gate = CabalGate(
             ArtifactDeployment.deploy(
                 "CabalGate.sol:CabalGate",
-                abi.encode(address(plea), address(intake), address(imd), address(imd), SIGNER, 5 hours, 27.5 minutes)
+                abi.encode(address(plea), address(intake), oracleAsset, address(imd), SIGNER, 5 hours, 27.5 minutes)
             )
         );
         seasons = Seasons(
@@ -65,8 +74,8 @@ contract LaunchTest is Test {
                     stacker,
                     1_300_000,
                     START,
-                    address(imd),
-                    false,
+                    launchAsset,
+                    mint,
                     keccak256(vm.getCode("Letterbox.sol:Letterbox")),
                     bytes32(0)
                 )
@@ -126,6 +135,9 @@ contract LaunchTest is Test {
         vm.expectRevert(PleaLaunch.HookNotDeployed.selector);
         launch.seed();
         launch.deployHook(mine(), initCode());
+        vm.expectRevert(PleaLaunch.LetterboxNotDeployed.selector);
+        launch.seed();
+        launch.deployLetterbox(vm.getCode("Letterbox.sol:Letterbox"));
         vm.expectRevert(abi.encodeWithSelector(PleaLaunch.TooEarly.selector, START));
         launch.seed();
         vm.warp(START);
@@ -139,9 +151,45 @@ contract LaunchTest is Test {
     function test_ownerMaySeedEarly() public {
         deployAll(address(pm));
         launch.deployHook(mine(), initCode());
+        launch.deployLetterbox(vm.getCode("Letterbox.sol:Letterbox"));
         vm.prank(OWNER);
         launch.seed();
         assertTrue(PleaHook(plea.hook()).seeded());
+    }
+
+    /// @dev Round 5, R5-A2-1: the Letterbox's chain-independent refusals stop the launch itself.
+    function test_theLaunchRefusesAnOracleSetupTheLetterboxWouldRefuse() public {
+        address fee = ArtifactDeployment.deploy("Mocks.sol:MockIMD", bytes(""));
+        vm.expectRevert(PleaLaunch.OracleAssetNotImd.selector);
+        this.launchWith(fee, fee, false); // a foreign fee asset, not minted
+        vm.expectRevert(PleaLaunch.MintWithPoolImd.selector);
+        this.launchWith(address(imd), address(imd), true); // minting the pool IMD
+        vm.expectRevert(PleaLaunch.OracleAssetMismatch.selector);
+        this.launchWith(address(imd), fee, true); // the gate pulls IMD, the launch mints another token
+        this.launchWith(fee, fee, true); // Sepolia's settings
+        this.launchWith(address(imd), address(imd), false); // the mainnet settings
+    }
+
+    function launchWith(address gateAsset, address launchAsset, bool mint) external {
+        deployAll(address(pm), gateAsset, launchAsset, mint);
+    }
+
+    /// @dev Round 5, R5-A2-1: Sepolia's minted fee on chain id 1 (IMD's launch rehearsal accepts it,
+    /// so the launch cannot refuse it): the Letterbox refuses, and trading never opens.
+    function test_aMintedFeeOnChainOneNeverOpensTrading() public {
+        vm.chainId(1);
+        address fee = ArtifactDeployment.deploy("Mocks.sol:MockIMD", bytes(""));
+        deployAll(address(pm), fee, true);
+        launch.deployHook(mine(), initCode());
+        vm.expectRevert(PleaLaunch.LetterboxDeployFailed.selector);
+        launch.deployLetterbox(vm.getCode("Letterbox.sol:Letterbox"));
+        vm.prank(OWNER);
+        vm.expectRevert(PleaLaunch.LetterboxNotDeployed.selector);
+        launch.seed();
+        vm.warp(START);
+        vm.expectRevert(PleaLaunch.LetterboxNotDeployed.selector);
+        launch.seed();
+        assertEq(gate.startedAt(), 0);
     }
 
     function test_eachStepFitsAMainnetTransaction() public {
