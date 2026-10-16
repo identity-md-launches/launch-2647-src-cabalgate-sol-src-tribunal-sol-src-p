@@ -16,6 +16,7 @@ import {IERC20Errors} from "@openzeppelin/contracts/interfaces/draft-IERC6093.so
 contract HookAdversarialTest is SepoliaFixture {
     function test_zeroBuyRevertsAndOneWeiBuyConservesSupply() public {
         uint256 supply = plea.totalSupply();
+        uint256 burnedBefore = hook.totalBurned(); // the seed's dust, counted since round 8
         uint256 quoteBefore = imd.balanceOf(alice);
         vm.prank(alice);
         vm.expectRevert(IPoolManager.SwapAmountCannotBeZero.selector);
@@ -24,7 +25,7 @@ contract HookAdversarialTest is SepoliaFixture {
         uint256 bought = buy(alice, 1);
         assertGt(bought, 0);
         assertEq(imd.balanceOf(alice), quoteBefore - 1);
-        assertEq(plea.totalSupply() + hook.totalBurned(), supply);
+        assertEq(plea.totalSupply() + hook.totalBurned(), supply + burnedBefore);
         assertEq(
             plea.balanceOf(alice) + plea.balanceOf(address(pm)) + plea.balanceOf(address(distributor))
                 + plea.balanceOf(address(seasons)),

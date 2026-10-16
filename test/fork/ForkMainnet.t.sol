@@ -105,8 +105,14 @@ contract ForkMainnetTest is Test {
         stacker = new StackerStandIn(IMD, SIMD);
         _deploy();
         _deployHook();
+        // Since round 8 (R8-A3-1) `seed` refuses, on chain id 1, a hook built with the Sepolia opening
+        // market cap. On the Sepolia build (`next`, MARKET_CAP_IMD 5,700) this rehearsal opens trading
+        // under Sepolia's chain id for that one call; the mainnet branch's build (14,000) opens on 1.
+        bool sepoliaBuild = hook.MARKET_CAP_IMD() < 14_000e18;
+        if (sepoliaBuild) vm.chainId(11155111);
         vm.prank(owner);
         launch.seed();
+        if (sepoliaBuild) vm.chainId(1);
         router = BuyRouter(
             ArtifactDeployment.deploy(
                 "Mocks.sol:BuyRouter", abi.encode(IPoolManager(POOL_MANAGER), hook, IMD, IERC20(address(plea)))
