@@ -413,7 +413,10 @@ contract PleaHook {
         lastGuardAt = block.timestamp;
         // Any PLEA dust the rounding left behind is burned: the hook holds no inventory of its own.
         uint256 dust = IERC20(plea).balanceOf(address(this));
-        if (dust != 0) IPLEA(plea).burn(dust);
+        if (dust != 0) {
+            IPLEA(plea).burn(dust);
+            totalBurned += dust; // counted like every other burn (round 8)
+        }
         _checkpoint(initPrice);
         emit Seeded(initPrice, initTick, liquidity, deposited);
     }
@@ -755,12 +758,16 @@ contract PleaHook {
         imd.forceApprove(address(stacker), amount);
         _requireGas(creditGas * 64 / 63 + CREDIT_RESERVE);
         totalCashback += amount;
-        try stacker.credit{gas: creditGas}(trader, amount) {
-            // The allowance is per credit: nothing stays approved after a credit that pulled less.
-            imd.forceApprove(address(stacker), 0);
-            emit CashbackStacked(trader, amount);
-            return;
-        } catch {}
+        // A Stacker without code would revert outside the `try` (the call's extcodesize check), so it
+        // takes the plain-IMD path like a reverting credit (round 8).
+        if (address(stacker).code.length != 0) {
+            try stacker.credit{gas: creditGas}(trader, amount) {
+                // The allowance is per credit: nothing stays approved after a credit that pulled less.
+                imd.forceApprove(address(stacker), 0);
+                emit CashbackStacked(trader, amount);
+                return;
+            } catch {}
+        }
         imd.forceApprove(address(stacker), 0);
         (bool ok, bytes memory r) = address(imd).call(abi.encodeCall(IERC20.transfer, (trader, amount)));
         if (ok && (r.length == 0 || abi.decode(r, (bool)))) {

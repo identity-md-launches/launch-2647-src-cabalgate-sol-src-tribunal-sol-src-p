@@ -91,7 +91,8 @@ contract GasPassTest is Fixture {
 
     /// The text check reads bytes without bounds checks now; it must match the reference rules.
     /// Run 5's delimiter finding adds [OBJECTION prefixes to both checks below; round 7 (R7-A1-2)
-    /// adds the rest of Unicode's format characters to both, the gate now decoding code points.
+    /// adds the rest of Unicode's format characters to both, the gate now decoding code points; round 8
+    /// (R8-A1-1) adds every variation selector and every other default-ignorable character.
     /// forge-config: default.fuzz.runs = 5000
     function testFuzz_textCheckMatchesTheReferenceRules(uint256 seed) public {
         bytes memory t = _mixed(seed);
@@ -108,13 +109,12 @@ contract GasPassTest is Fixture {
     }
 
     function test_textCheckEdgeCases() public {
-        bytes[16] memory valid = [
+        bytes[18] memory valid = [
             bytes("a"),
             bytes("[pleb] is fine, [/ple too, and [ alone"),
             hex"c3a9e282acf09f9880", // é € 😀
             hex"c2a0", // no-break space
             hex"e280a7", // U+2027
-            hex"e281a5", // U+2065
             hex"efb890", // U+FE10
             hex"f3a18080", // U+E1000
             hex"ed9fbf", // U+D7FF
@@ -124,9 +124,12 @@ contract GasPassTest is Fixture {
             hex"d886", // U+0606, next to the Arabic number signs
             hex"efbfbc", // U+FFFC, next to the annotation characters
             hex"f09d85bb", // U+1D17B, next to the musical format controls
-            hex"e281b0" // U+2070 superscript zero, just past the refused U+206F
+            hex"e281b0", // U+2070 superscript zero, just past the refused U+206F
+            hex"cd8e", // U+034E, next to the combining grapheme joiner
+            hex"e1a08a", // U+180A Mongolian nirugu, next to the free variation selectors
+            hex"e385a5" // U+3165, next to the Hangul filler
         ];
-        bytes[23] memory invalid = [
+        bytes[28] memory invalid = [
             bytes(""),
             bytes("[PLEA]"),
             bytes("x [/pLeA"),
@@ -149,7 +152,12 @@ contract GasPassTest is Fixture {
             hex"e281aa", // U+206A deprecated format control
             hex"efbfb9", // U+FFF9 interlinear annotation anchor
             hex"f09390b0", // U+13430 Egyptian hieroglyph vertical joiner
-            hex"f09d85b3" // U+1D173 musical symbol begin beam
+            hex"f09d85b3", // U+1D173 musical symbol begin beam
+            hex"e281a5", // U+2065 (reserved, default ignorable)
+            hex"e1a08b", // U+180B Mongolian free variation selector one
+            hex"cd8f", // U+034F combining grapheme joiner
+            hex"e385a4", // U+3164 Hangul filler
+            hex"efbfb0" // U+FFF0 (reserved, default ignorable)
         ];
         for (uint256 i; i < valid.length; ++i) {
             assertTrue(_refValid(valid[i]), "reference: valid");
@@ -177,7 +185,7 @@ contract GasPassTest is Fixture {
 
     /// @dev Fragments of valid, forbidden and broken text, joined at random.
     function _mixed(uint256 seed) internal pure returns (bytes memory t) {
-        bytes[56] memory pal = [
+        bytes[62] memory pal = [
             bytes("a"),
             bytes("Z"),
             bytes(" "),
@@ -233,7 +241,13 @@ contract GasPassTest is Fixture {
             hex"efbfbb",
             hex"efbfbc",
             hex"f09bb2a0",
-            hex"f09d85bb"
+            hex"f09d85bb",
+            hex"e1a08b",
+            hex"e1a08a",
+            hex"cd8f",
+            hex"e19eb5",
+            hex"efbea0",
+            hex"efbfb4"
         ];
         if (seed % 97 == 0) return "";
         uint256 n = 1 + seed % 24;
@@ -282,6 +296,8 @@ contract GasPassTest is Fixture {
                 if ((c == 0xc2 && (c1 <= 0x9f || c1 == 0xad)) || (c == 0xd8 && c1 == 0x9c)) return false;
                 // round 7: U+0600-0605, U+06DD, U+070F
                 if ((c == 0xd8 && c1 <= 0x85) || (c == 0xdb && c1 == 0x9d) || (c == 0xdc && c1 == 0x8f)) return false;
+                // round 8: U+034F combining grapheme joiner
+                if (c == 0xcd && c1 == 0x8f) return false;
             } else if (len == 3) {
                 uint8 c2 = uint8(b[i + 2]);
                 if (c == 0xe2 && c1 == 0x80 && ((c2 >= 0x8b && c2 <= 0x8f) || (c2 >= 0xa8 && c2 <= 0xae))) {
@@ -298,6 +314,14 @@ contract GasPassTest is Fixture {
                 if (c == 0xef && c1 == 0xbf && c2 >= 0xb9 && c2 <= 0xbb) return false;
                 if (c == 0xe0 && c1 == 0xa2 && (c2 == 0x90 || c2 == 0x91)) return false;
                 if (c == 0xe0 && c1 == 0xa3 && c2 == 0xa2) return false;
+                // round 8: U+115F-1160, U+17B4-17B5, U+180B-180D, U+180F, U+2065, U+3164, U+FFA0, U+FFF0-FFF8
+                if (c == 0xe1 && c1 == 0x85 && (c2 == 0x9f || c2 == 0xa0)) return false;
+                if (c == 0xe1 && c1 == 0x9e && (c2 == 0xb4 || c2 == 0xb5)) return false;
+                if (c == 0xe1 && c1 == 0xa0 && c2 >= 0x8b && c2 <= 0x8f) return false;
+                if (c == 0xe2 && c1 == 0x81 && c2 == 0xa5) return false;
+                if (c == 0xe3 && c1 == 0x85 && c2 == 0xa4) return false;
+                if (c == 0xef && c1 == 0xbe && c2 == 0xa0) return false;
+                if (c == 0xef && c1 == 0xbf && c2 >= 0xb0 && c2 <= 0xb8) return false;
             } else {
                 if (c == 0xf3 && c1 == 0xa0) return false;
                 // round 7: U+110BD, U+110CD, U+13430-1343F, U+1BCA0-1BCA3, U+1D173-1D17A

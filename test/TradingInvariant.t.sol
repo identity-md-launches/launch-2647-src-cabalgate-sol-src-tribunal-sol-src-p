@@ -334,7 +334,8 @@ contract TradingInvariantTest is SepoliaFixture {
 
     function setUp() public virtual override {
         super.setUp();
-        seedBurn = plea.TOTAL_SUPPLY() - plea.totalSupply();
+        // Burns the hook does not count (none since round 8 counts the seed's dust).
+        seedBurn = plea.TOTAL_SUPPLY() - plea.totalSupply() - hook.totalBurned();
         initialCap = hook.inventoryCap();
         decayStart = hook.lastCapDecayAt();
         handler = new TradingHandler(

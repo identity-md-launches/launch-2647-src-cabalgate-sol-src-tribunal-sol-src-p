@@ -39,6 +39,7 @@ contract PleaLaunch {
     error HookNotDeployed();
     error TooEarly(uint256 start);
     error BelowAgreedTiming();
+    error BelowAgreedMarketCap();
     error LetterboxAlreadyDeployed();
     error LetterboxDeployFailed();
     error TribunalOff();
@@ -203,10 +204,13 @@ contract PleaLaunch {
         if (tribunalCodeHash != bytes32(0) && tribunal == address(0)) revert TribunalNotDeployed();
         // The early-seed power follows PLEA's current owner (Ownable2Step), not the launch-time snapshot.
         if (msg.sender != IPLEAForLaunch(plea).owner() && block.timestamp < START) revert TooEarly(START);
-        // The agreed mainnet clock, checked on the live chain rather than in CabalGate's constructor:
-        // launch rehearsals deploy the manifest on a bare EVM whose chain id is 1.
-        if (block.chainid == 1 && (IGate(gate).SEASON() < 15 days || IGate(gate).DEADMAN() < 33 hours)) {
-            revert BelowAgreedTiming();
+        // The agreed mainnet clock and opening market cap, checked on the live chain rather than in a
+        // constructor: launch rehearsals deploy the manifest on a bare EVM whose chain id is 1. The cap is
+        // the hook's compile-time constant (5,700 IMD on the Sepolia code), so a Sepolia build can never
+        // open trading on chain id 1 (round 8, R8-A3-1).
+        if (block.chainid == 1) {
+            if (IGate(gate).SEASON() < 15 days || IGate(gate).DEADMAN() < 33 hours) revert BelowAgreedTiming();
+            if (IPleaHook(hook).MARKET_CAP_IMD() < 14_000e18) revert BelowAgreedMarketCap();
         }
         opened = true;
         IPleaHook(hook).seed();

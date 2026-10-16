@@ -268,8 +268,8 @@ contract CabalGate is OracleAttestationConsumer {
         // The PLEA a buy record covers scores the record's own holding time and profit. PLEA it does
         // not cover (the distributor's claims, season prizes, an exempt transfer) never inherits the
         // history of a dust buy: it counts as held since trading opened, at the profit table's middle.
-        // A plea larger than the record takes the PLEA-weighted mean of the two, rounded down, so one
-        // wei over the record never rescores the whole plea (round 7, R7-A1-1).
+        // A plea larger than the record takes the PLEA-weighted mean of the two, rounded to the nearest
+        // point, so one wei over the record changes nothing either way (rounds 7 and 8, R7-A1-1, R8-A1-2).
         uint256 facts = _heldPoints(avgBuyTime);
         if (spent != 0) {
             uint256 value = FullMath.mulDiv(heldPlea, latest, FixedPoint96.Q96);
@@ -282,7 +282,7 @@ contract CabalGate is OracleAttestationConsumer {
             }
         }
         if (heldPlea < amount) {
-            facts = (heldPlea * facts + (amount - heldPlea) * (_heldPoints(startedAt) + 10)) / amount;
+            facts = (heldPlea * facts + (amount - heldPlea) * (_heldPoints(startedAt) + 10) + amount / 2) / amount;
         }
         score += uint8(facts);
         uint256 ago = h.price24hAgo();
@@ -858,20 +858,21 @@ contract CabalGate is OracleAttestationConsumer {
         }
     }
 
-    /// @dev The characters a text may not hold beyond ASCII: the C1 controls U+0080-009F, the soft
-    /// hyphen, every format (Cf) character of Unicode 15.1 (Arabic and Syriac number signs and marks,
-    /// U+061C, U+180E, U+200B-200F zero-width and LRM/RLM, U+202A-202E bidi embeddings, U+2060-2064
-    /// invisible operators, U+2066-206F bidi isolates and deprecated controls, U+FEFF, U+FFF9-FFFB
-    /// interlinear annotation, the Kaithi, Egyptian hieroglyph, shorthand and musical format
-    /// controls, the tags), the line and paragraph separators U+2028/2029, the variation selectors
-    /// U+FE00-FE0F and U+E0100-E01EF (the whole U+E0000-E0FFF range is refused).
+    /// @dev The characters a text may not hold beyond ASCII (Unicode 15.1): the C1 controls
+    /// U+0080-009F, every format (Cf) character (the Arabic and Syriac number signs and marks, U+061C,
+    /// U+180E, U+200B-200F, U+202A-202E bidi embeddings, U+2060-206F, U+FEFF, U+FFF9-FFFB
+    /// interlinear annotation, the Kaithi, Egyptian hieroglyph, shorthand and musical controls, the
+    /// tags), the line and paragraph separators U+2028/2029, every variation selector (U+180B-180D,
+    /// U+180F, U+FE00-FE0F, U+E0100-E01EF) and every other Default_Ignorable_Code_Point (U+00AD, U+034F,
+    /// the Hangul fillers U+115F-1160, U+3164, U+FFA0, the Khmer inherent vowels U+17B4-17B5, the
+    /// reserved U+2065, U+FFF0-FFF8 and U+E0000-E0FFF): round 8, R8-A1-1.
     function _refused(uint256 cp) internal pure returns (bool) {
         unchecked {
-            return cp <= 0x9f || cp == 0xad || cp - 0x600 <= 5 || cp == 0x61c || cp == 0x6dd || cp == 0x70f
-                || cp - 0x890 <= 1 || cp == 0x8e2 || cp == 0x180e || cp - 0x200b <= 4 || cp - 0x2028 <= 6
-                || cp - 0x2060 <= 4 || cp - 0x2066 <= 9 || cp - 0xfe00 <= 15 || cp == 0xfeff || cp - 0xfff9 <= 2
-                || cp == 0x110bd || cp == 0x110cd || cp - 0x13430 <= 15 || cp - 0x1bca0 <= 3 || cp - 0x1d173 <= 7
-                || cp >> 12 == 0xe0;
+            return cp <= 0x9f || cp == 0xad || cp == 0x34f || cp - 0x600 <= 5 || cp == 0x61c || cp == 0x6dd
+                || cp == 0x70f || cp - 0x890 <= 1 || cp == 0x8e2 || cp - 0x115f <= 1 || cp - 0x17b4 <= 1
+                || cp - 0x180b <= 4 || cp - 0x200b <= 4 || cp - 0x2028 <= 6 || cp - 0x2060 <= 15 || cp == 0x3164
+                || cp - 0xfe00 <= 15 || cp == 0xfeff || cp == 0xffa0 || cp - 0xfff0 <= 11 || cp == 0x110bd
+                || cp == 0x110cd || cp - 0x13430 <= 15 || cp - 0x1bca0 <= 3 || cp - 0x1d173 <= 7 || cp >> 12 == 0xe0;
         }
     }
 

@@ -80,7 +80,7 @@ contract TribunalTextPropertiesTest is SepoliaFixture {
 
     function test_malformedUtf8ControlsAndInvisibleCharactersAreRejected() public {
         uint256 pid = approvedPlea(alice, 40);
-        bytes[44] memory bad = [
+        bytes[57] memory bad = [
             bytes(hex"00"),
             hex"09",
             hex"0a",
@@ -124,7 +124,20 @@ contract TribunalTextPropertiesTest is SepoliaFixture {
             hex"f09390b0",
             hex"f09390bf",
             hex"f09bb2a3",
-            hex"f09d85ba" // the format characters round 7 added (R7-A1-2)
+            hex"f09d85ba", // the format characters round 7 added (R7-A1-2)
+            hex"cd8f",
+            hex"e1859f",
+            hex"e185a0",
+            hex"e19eb4",
+            hex"e19eb5",
+            hex"e1a08b",
+            hex"e1a08d",
+            hex"e1a08f",
+            hex"e281a5",
+            hex"e385a4",
+            hex"efbea0",
+            hex"efbfb0",
+            hex"efbfb8" // the default-ignorables round 8 added (R8-A1-1)
         ];
         for (uint256 i; i < bad.length; ++i) {
             string memory text = string(bytes.concat(bytes("ordinary prefix "), bad[i]));
@@ -159,7 +172,7 @@ contract TribunalTextPropertiesTest is SepoliaFixture {
 
     /// @dev Plain letters joined with the characters at the edges of the refused ranges.
     function _mixedText(uint256 seed) internal pure returns (bytes memory t) {
-        bytes[26] memory pal = [
+        bytes[32] memory pal = [
             bytes("a"),
             bytes(" "),
             bytes("["),
@@ -185,7 +198,13 @@ contract TribunalTextPropertiesTest is SepoliaFixture {
             hex"eda080",
             hex"f3a08081",
             hex"e282",
-            hex"f09bb2a3"
+            hex"f09bb2a3",
+            hex"e1a08b",
+            hex"e1a08a",
+            hex"cd8f",
+            hex"cd8e",
+            hex"e385a4",
+            hex"efbfb0"
         ];
         uint256 n = 1 + seed % 40;
         for (uint256 i; i < n; ++i) {

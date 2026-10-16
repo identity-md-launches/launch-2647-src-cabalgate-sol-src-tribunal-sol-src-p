@@ -70,6 +70,7 @@ interface IPleaHook {
     function basisOf(address) external view returns (uint256 imdSpent, uint256 pleaHeld, uint256 avgBuyTime);
     function fundWall(uint256 amount) external;
     function seed() external;
+    function MARKET_CAP_IMD() external view returns (uint256);
 }
 
 interface ISeasons {

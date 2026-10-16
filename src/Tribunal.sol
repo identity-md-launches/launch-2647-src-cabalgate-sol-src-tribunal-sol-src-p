@@ -518,11 +518,11 @@ contract Tribunal is OracleAttestationConsumer, ReentrancyGuardTransient {
     /// @dev The gate's refused characters beyond ASCII (CabalGate._refused, verbatim).
     function _refused(uint256 cp) internal pure returns (bool) {
         unchecked {
-            return cp <= 0x9f || cp == 0xad || cp - 0x600 <= 5 || cp == 0x61c || cp == 0x6dd || cp == 0x70f
-                || cp - 0x890 <= 1 || cp == 0x8e2 || cp == 0x180e || cp - 0x200b <= 4 || cp - 0x2028 <= 6
-                || cp - 0x2060 <= 4 || cp - 0x2066 <= 9 || cp - 0xfe00 <= 15 || cp == 0xfeff || cp - 0xfff9 <= 2
-                || cp == 0x110bd || cp == 0x110cd || cp - 0x13430 <= 15 || cp - 0x1bca0 <= 3 || cp - 0x1d173 <= 7
-                || cp >> 12 == 0xe0;
+            return cp <= 0x9f || cp == 0xad || cp == 0x34f || cp - 0x600 <= 5 || cp == 0x61c || cp == 0x6dd
+                || cp == 0x70f || cp - 0x890 <= 1 || cp == 0x8e2 || cp - 0x115f <= 1 || cp - 0x17b4 <= 1
+                || cp - 0x180b <= 4 || cp - 0x200b <= 4 || cp - 0x2028 <= 6 || cp - 0x2060 <= 15 || cp == 0x3164
+                || cp - 0xfe00 <= 15 || cp == 0xfeff || cp == 0xffa0 || cp - 0xfff0 <= 11 || cp == 0x110bd
+                || cp == 0x110cd || cp - 0x13430 <= 15 || cp - 0x1bca0 <= 3 || cp - 0x1d173 <= 7 || cp >> 12 == 0xe0;
         }
     }
 

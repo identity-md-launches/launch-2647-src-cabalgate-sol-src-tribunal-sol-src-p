@@ -66,6 +66,53 @@ contract GreedyStacker {
 /// @dev Adversarial coverage of the three hook fixes of this revision (hourly checkpoint, Stacker
 /// allowance, wall guard), run in both currency orientations.
 /// forge-config: default.fuzz.runs = 64
+/// @dev A router that, after the death, takes the PoolManager's whole PLEA inside its unlock, buys,
+/// and settles the PLEA back (round 8 A3's judge): the swap's 0.25% burn becomes deferred PLEA claims.
+contract FlashTakePleaRouter {
+    IPoolManager public pm;
+    PleaHook public hook;
+    IERC20 public imd;
+    IERC20 public plea;
+
+    constructor(IPoolManager pm_, PleaHook hook_, IERC20 imd_, IERC20 plea_) {
+        pm = pm_;
+        hook = hook_;
+        imd = imd_;
+        plea = plea_;
+    }
+
+    function buy(uint256 imdIn, address trader) external {
+        pm.unlock(abi.encode(msg.sender, imdIn, trader));
+    }
+
+    function unlockCallback(bytes calldata raw) external returns (bytes memory) {
+        require(msg.sender == address(pm), "pm");
+        (address payer, uint256 imdIn, address trader) = abi.decode(raw, (address, uint256, address));
+        uint256 taken = plea.balanceOf(address(pm));
+        pm.take(Currency.wrap(address(plea)), address(this), taken);
+        bool pleaIsZero = hook.pleaIsZero();
+        BalanceDelta d = pm.swap(
+            hook.poolKey(),
+            SwapParams({
+                zeroForOne: !pleaIsZero,
+                amountSpecified: -int256(imdIn),
+                sqrtPriceLimitX96: pleaIsZero ? TickMath.MAX_SQRT_PRICE - 1 : TickMath.MIN_SQRT_PRICE + 1
+            }),
+            abi.encode(trader)
+        );
+        (int128 pleaDelta, int128 imdDelta) = pleaIsZero ? (d.amount0(), d.amount1()) : (d.amount1(), d.amount0());
+        pm.sync(Currency.wrap(address(imd)));
+        imd.transferFrom(payer, address(pm), uint256(uint128(-imdDelta)));
+        pm.settle();
+        uint256 out = uint256(uint128(pleaDelta));
+        pm.sync(Currency.wrap(address(plea)));
+        plea.transfer(address(pm), taken - out);
+        pm.settle();
+        plea.transfer(trader, out);
+        return "";
+    }
+}
+
 contract HookRevisionTest is Fixture {
     using StateLibrary for IPoolManager;
 
@@ -445,6 +492,50 @@ contract HookRevisionTest is Fixture {
             assertEq(got, filled, "every size fills the same PLEA");
             vm.revertToState(s);
         }
+    }
+
+    /// The seed's rounding dust is burned and counted, so supply plus burned is the minted supply
+    /// from the first block (round 8: the dust burn was not in `totalBurned`).
+    function test_theSeedsDustBurnIsCounted() public view {
+        assertEq(plea.totalSupply() + hook.totalBurned(), plea.TOTAL_SUPPLY());
+    }
+
+    /// A Stacker without code (a wrong launch address) takes the plain-IMD path like a reverting
+    /// credit instead of reverting every buy (round 8: the call's extcodesize check ran outside the try).
+    function test_aStackerWithoutCodePaysTheCashbackInPlainImd() public {
+        buy(alice, 2_000e18); // past the opening exception: the pool's own IMD covers the payouts
+        vm.etch(address(stacker), "");
+        uint256 before = imd.balanceOf(carol);
+        vm.expectEmit(true, false, false, false, address(hook));
+        emit PleaHook.CashbackPaidPlain(carol, 0);
+        buy(carol, 100e18);
+        assertGt(imd.balanceOf(carol), before - 100e18, "carol got her cashback in plain IMD");
+        assertEq(imd.allowance(address(hook), address(stacker)), 0);
+    }
+
+    /// After the death, a router that flash-takes the PoolManager's PLEA turns its own swap's 0.25%
+    /// burn into PLEA claims instead of reverting; they are backed and the next rebalance burns them,
+    /// so nothing is lost and supply plus burned is conserved (round 8 A3, documented in THREAT-MODEL).
+    function test_aFlashTakenPoolManagerOnlyDefersTheBurn() public {
+        buy(alice, 100e18);
+        _killCabal();
+        FlashTakePleaRouter r =
+            new FlashTakePleaRouter(IPoolManager(address(pm)), hook, IERC20(address(imd)), IERC20(address(plea)));
+        vm.prank(bob);
+        imd.approve(address(r), type(uint256).max);
+        uint256 supply = plea.totalSupply() + hook.totalBurned();
+        uint256 burned = hook.totalBurned();
+        vm.prank(bob);
+        r.buy(100e18, bob);
+        uint256 owed = hook.pleaClaims();
+        assertGt(owed, 0, "the burn was deferred");
+        assertEq(hook.totalBurned(), burned);
+        assertEq(plea.totalSupply() + hook.totalBurned(), supply);
+        assertTrue(hook.pendingRebalance());
+        hook.rebalance();
+        assertEq(hook.pleaClaims(), 0);
+        assertEq(hook.totalBurned(), burned + owed, "the next rebalance burned it");
+        assertEq(plea.totalSupply() + hook.totalBurned(), supply, "supply conserved");
     }
 }
 

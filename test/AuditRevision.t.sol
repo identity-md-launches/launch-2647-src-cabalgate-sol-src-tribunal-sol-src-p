@@ -5,6 +5,7 @@ import {Fixture} from "./utils/Fixture.sol";
 import {CabalGate} from "../src/CabalGate.sol";
 import {Seasons} from "../src/Seasons.sol";
 import {PleaHook} from "../src/PleaHook.sol";
+import {IPleaHook} from "../src/interfaces/IPleaParts.sol";
 import {MockIMD} from "./utils/Mocks.sol";
 import {IPoolManager} from "v4-core/interfaces/IPoolManager.sol";
 import {Currency} from "v4-core/types/Currency.sol";
@@ -300,6 +301,25 @@ contract AuditRevisionTest is Fixture {
         uint256 amount = held + held / 4;
         assertEq(gate.factScore(alice, amount), 9 + 7 + 9, "share 9 (31.25%), facts (4 x 6 + 1 x 12) / 5 = 7, up 9");
         assertEq(gate.factScore(alice, held * 2), 3 + 9 + 9, "share 3 (50%), half and half: (6 + 12) / 2 = 9, up 9");
+    }
+
+    /// The other direction (round 8, R8-A1-2): a week-old record at a loss (7 + 13 = 20) beats received
+    /// PLEA (7 + 10 = 17); one wei over it now keeps 41 (the mean, 19.99..., rounds to the nearest point,
+    /// 20; rounded down it was 40), and a plea twice the record takes 18.5 -> 19.
+    function test_oneWeiOverABetterBuyRecordKeepsItsFacts() public {
+        skip(8 days);
+        uint256 held = 1_000e18;
+        vm.prank(address(seasons));
+        plea.transfer(alice, 10_000e18);
+        vm.mockCall(
+            address(hook), abi.encodeWithSelector(IPleaHook.basisOf.selector, alice), abi.encode(100e18, held, gate.startedAt())
+        );
+        vm.mockCall(address(hook), abi.encodeWithSelector(IPleaHook.latestPrice.selector), abi.encode(uint256(1 << 96) / 20));
+        vm.mockCall(address(hook), abi.encodeWithSelector(IPleaHook.price24hAgo.selector), abi.encode(uint256(0)));
+        assertEq(gate.factScore(alice, held), 16 + 7 + 13 + 5, "the record: share 16, a week 7, at a loss 13, no history 5");
+        assertEq(gate.factScore(alice, held + 1), 16 + 7 + 13 + 5, "one wei over keeps the record's facts");
+        assertEq(gate.factScore(alice, held * 2), 16 + 19 + 5, "half and half: (20 + 17) / 2 = 18.5 -> 19");
+        vm.clearMockedCalls();
     }
 
     function paid(address who) internal view returns (uint256) {

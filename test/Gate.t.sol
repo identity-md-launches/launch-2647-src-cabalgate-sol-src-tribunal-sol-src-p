@@ -310,6 +310,34 @@ contract GateTest is Fixture {
         plead(alice, small(alice), string(hex"7365c3a96c6c20d886efbfbcf09bb29ff09d85bb"));
     }
 
+    /// Every variation selector and every other default-ignorable character is refused as well (round 8,
+    /// R8-A1-1: the four Mongolian free variation selectors passed); their visible neighbours do not.
+    function test_everyDefaultIgnorableCharacterIsRefused() public {
+        bytes[13] memory bad = [
+            bytes(hex"cd8f"), // U+034F combining grapheme joiner
+            hex"e1859f", // U+115F Hangul choseong filler
+            hex"e185a0", // U+1160 Hangul jungseong filler
+            hex"e19eb4", // U+17B4 Khmer vowel inherent aq
+            hex"e19eb5", // U+17B5 Khmer vowel inherent aa
+            hex"e1a08b", // U+180B Mongolian free variation selector one
+            hex"e1a08d", // U+180D Mongolian free variation selector three
+            hex"e1a08f", // U+180F Mongolian free variation selector four
+            hex"e281a5", // U+2065 (reserved, default ignorable)
+            hex"e385a4", // U+3164 Hangul filler
+            hex"efbea0", // U+FFA0 halfwidth Hangul filler
+            hex"efbfb0", // U+FFF0 (reserved, default ignorable)
+            hex"efbfb8" // U+FFF8 (reserved, default ignorable)
+        ];
+        for (uint256 i; i < bad.length; ++i) {
+            uint256 amount = small(alice);
+            vm.prank(alice);
+            vm.expectRevert(CabalGate.BadPleaText.selector);
+            gate.submitSell(amount, string(bytes.concat("sell ", bad[i], " hidden")));
+        }
+        // U+034E, U+180A Mongolian nirugu, U+1810 Mongolian digit zero, U+3165, U+FFA1, U+2070
+        plead(alice, small(alice), string(hex"7365c3a96c6c20cd8ee1a08ae1a090e385a5efbea1e281b0"));
+    }
+
     function test_callbackFitsTheStipend() public {
         uint256 id = plead(alice, plea.balanceOf(alice) / 10);
         assertTrue(answer(id, 40));

@@ -11,19 +11,14 @@ import {MockIMD, MockSIMD, MockStacker, MockIntake} from "./utils/Mocks.sol";
 /// on the live chain, not in CabalGate's constructor: IMD's launch rehearsal deploys the manifest on
 /// a bare EVM whose chain id is 1, where a constructor check refused the Sepolia settings (run 5,
 /// launch #1691 parked).
-contract MainnetGuardTest is Fixture {
-    function setTimings() internal override {
-        SEASON = 5 hours;
-        DEADMAN = 33 hours;
-    }
-
+abstract contract MainnetGuardBase is Fixture {
     /// @dev The mainnet path: the oracle fee is pool IMD, nothing is minted (the Letterbox and the
     /// Tribunal refuse `mintOracleFee` on chain id 1 by their own guard; they are not in the manifest).
     function oracleFeeToken() internal view override returns (MockIMD) {
         return imd;
     }
 
-    /// @dev The fixture up to, but not including, seed: on chain id 1 with Sepolia's fast clock.
+    /// @dev The fixture up to, but not including, seed, on chain id 1 (each suite sets its own clock).
     function setUp() public override {
         vm.chainId(1);
         vm.warp(T0);
@@ -37,6 +32,13 @@ contract MainnetGuardTest is Fixture {
         intake = MockIntake(ArtifactDeployment.deploy("Mocks.sol:MockIntake", abi.encode(oracleFeeToken())));
         deployLaunch();
         deployHook();
+    }
+}
+
+contract MainnetGuardTest is MainnetGuardBase {
+    function setTimings() internal override {
+        SEASON = 5 hours;
+        DEADMAN = 33 hours;
     }
 
     function test_manifestDeploysOnChainOneWithTheFastClock() public view {
@@ -57,5 +59,29 @@ contract MainnetGuardTest is Fixture {
         vm.prank(OWNER);
         launch.seed();
         assertEq(gate.startedAt(), uint64(block.timestamp));
+    }
+}
+
+/// @dev Round 8 (R8-A3-1): with the agreed clock, `seed` on chain id 1 also refuses a hook built with
+/// the Sepolia opening market cap (the compile-time `MARKET_CAP_IMD`, 5,700 IMD); the mainnet
+/// branch's 14,000 opens.
+contract MainnetMarketCapGuardTest is MainnetGuardBase {
+    function setTimings() internal override {
+        SEASON = 15 days;
+        DEADMAN = 33 hours;
+    }
+
+    function test_chainOneSeedNeedsTheAgreedMarketCap() public {
+        assertEq(block.chainid, 1);
+        uint256 cap = hook.MARKET_CAP_IMD();
+        vm.prank(OWNER);
+        if (cap < 14_000e18) {
+            vm.expectRevert(PleaLaunch.BelowAgreedMarketCap.selector);
+            launch.seed();
+            assertEq(gate.startedAt(), 0, "a Sepolia build never opens trading on chain id 1");
+        } else {
+            launch.seed();
+            assertEq(gate.startedAt(), uint64(block.timestamp));
+        }
     }
 }
