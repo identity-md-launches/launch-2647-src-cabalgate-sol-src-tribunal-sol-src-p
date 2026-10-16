@@ -349,6 +349,19 @@ contract TribunalTest is Fixture {
         (bool held, bool sustained,) = standing(id);
         assertFalse(held, "sustained: nothing to wait for");
         assertTrue(sustained);
+        assertEq(
+            tribunal.status(id),
+            string.concat(
+                "Plea #",
+                vm.toString(id),
+                unicode" · SUSTAINED (",
+                vm.toString(n - 3),
+                " vs need ",
+                vm.toString(n),
+                unicode") · no points"
+            ),
+            "the sustain shows while carol's objection still waits"
+        );
         assertTrue(rule(o2, 44));
         assertEq(uint8(ruling(o2)), uint8(Tribunal.Ruling.Overruled));
         Tribunal.Case memory c = tribunal.caseOf(id);

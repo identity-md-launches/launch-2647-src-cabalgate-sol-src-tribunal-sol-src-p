@@ -107,7 +107,7 @@ Earlier history (runs 2–4, the pre-run-3 audit `AuditRun3.t.sol`, the run-4 im
 ## Changes after round 5 (branch `next`; round 6 checks them)
 
 - **R5-A1-2:** the profit bands compare exact amounts (`CabalGate._factScoreAt`).
-- **R5-A1-1:** `Tribunal`: up to two objections pending at once, from different wallets (`Case.pending[2]` replaces `pendingId`; `object`, `onOracleResult`, `_void`, `standing`, `status`). New Tribunal hash `0x4533baa1…9368` (21,063 bytes).
+- **R5-A1-1:** `Tribunal`: up to two objections pending at once, from different wallets (`Case.pending[2]` replaces `pendingId`; `object`, `onOracleResult`, `_void`, `standing`, `status`). New Tribunal hash `0x072ebe13…1a2e` (21,066 bytes); `status` shows a sustain before a still-pending objection.
 - **R5-A2-1:** `PleaLaunch`: three constructor refusals, `seed` waits for the Letterbox (`LetterboxNotDeployed`); `IGate.oracleAsset()` added to the interface. The Letterbox and CabalGate are unchanged since round 5.
 
 ## Run 7 changes since run 6 (not findings; the areas should check them)

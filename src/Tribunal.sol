@@ -210,11 +210,7 @@ contract Tribunal is OracleAttestationConsumer, ReentrancyGuardTransient {
         if (seasons.excluded(seller)) return string.concat(head, "seller excluded: no points, nothing to object to");
         Case storage c = cases[pleaId];
         uint8 need = gate.getPlea(pleaId).need;
-        (uint256 a, uint256 b) = _live(c);
-        if (a != 0 && b != 0) {
-            return string.concat(head, "OBJECTIONS #", Strings.toString(a), " and #", Strings.toString(b), " pending");
-        }
-        if (a != 0 || b != 0) return string.concat(head, "OBJECTION #", Strings.toString(a | b), " pending");
+        // A sustain decides the plea even while the other objection still waits for its panel.
         if (c.sustained) {
             return string.concat(
                 head,
@@ -225,6 +221,11 @@ contract Tribunal is OracleAttestationConsumer, ReentrancyGuardTransient {
                 unicode") · no points"
             );
         }
+        (uint256 a, uint256 b) = _live(c);
+        if (a != 0 && b != 0) {
+            return string.concat(head, "OBJECTIONS #", Strings.toString(a), " and #", Strings.toString(b), " pending");
+        }
+        if (a != 0 || b != 0) return string.concat(head, "OBJECTION #", Strings.toString(a | b), " pending");
         string memory tail = c.count == 0
             ? ""
             : string.concat(
