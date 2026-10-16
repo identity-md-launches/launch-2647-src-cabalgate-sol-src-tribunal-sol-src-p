@@ -2,6 +2,7 @@
 pragma solidity 0.8.26;
 
 import {Fixture} from "./utils/Fixture.sol";
+import {PleaLaunch} from "../src/PleaLaunch.sol";
 import {Tribunal} from "../src/Tribunal.sol";
 import {Seasons} from "../src/Seasons.sol";
 import {CabalGate} from "../src/CabalGate.sol";
@@ -269,7 +270,9 @@ contract TribunalSeasonsTest is Fixture {
     }
 }
 
-/// @notice A plea recorded before the Tribunal was deployed is out of its reach.
+/// @notice Round 6 (R6-A2-I1): with a committed Tribunal, trading waits for it as it waits for the
+/// Letterbox, so no plea is ever recorded out of the Tribunal's reach. Before round 6 the owner could
+/// seed first, and a plea approved and recorded in the gap could never be objected to.
 contract TribunalLateDeployTest is Fixture {
     function withTribunal() internal pure override returns (bool) {
         return true;
@@ -279,22 +282,28 @@ contract TribunalLateDeployTest is Fixture {
         return false;
     }
 
-    function test_aPleaRecordedBeforeTheTribunalCannotBeObjectedTo() public {
+    function openTrading() internal override {
         assertEq(launch.tribunal(), address(0));
+        vm.expectRevert(PleaLaunch.TribunalNotDeployed.selector);
+        vm.prank(OWNER);
+        launch.seed();
+        vm.warp(launch.START());
+        vm.expectRevert(PleaLaunch.TribunalNotDeployed.selector);
+        launch.seed(); // nor anyone after START
+        assertEq(gate.startedAt(), 0, "trading is still closed");
+        tribunal = Tribunal(launch.deployTribunal(vm.getCode("Tribunal.sol:Tribunal")));
+        super.openTrading();
+    }
+
+    function test_tradingWaitsForTheCommittedTribunal() public {
+        assertTrue(launch.opened());
+        assertEq(launch.tribunal(), address(tribunal));
         buy(alice, 50e18);
         skip(1 days);
         uint256 id = approvedPlea(alice, 40);
-        seasons.record(id); // no Tribunal yet: recorded at once, today's behaviour
-        tribunal = Tribunal(launch.deployTribunal(vm.getCode("Tribunal.sol:Tribunal")));
-        assertTrue(seasons.recorded(id));
-        (, bool sustained,) = tribunal.standing(id);
-        assertFalse(sustained);
-        objectFails(bob, id, abi.encodeWithSelector(Tribunal.AlreadyRecorded.selector, id));
-        // The next approval is held like any other.
-        buy(carol, 50e18);
-        skip(1 days);
-        uint256 id2 = approvedPlea(carol, 40);
-        vm.expectRevert(abi.encodeWithSelector(Seasons.Held.selector, id2));
-        seasons.record(id2);
+        vm.expectRevert(abi.encodeWithSelector(Seasons.Held.selector, id));
+        seasons.record(id); // the first approval is held like any other
+        uint256 oid = objectTo(bob, id);
+        assertEq(tribunal.caseOf(id).pending[0], oid);
     }
 }

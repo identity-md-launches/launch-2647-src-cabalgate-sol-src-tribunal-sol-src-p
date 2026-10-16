@@ -145,8 +145,10 @@ contract ForkTestnetTest is Test {
                 )
             )
         );
-        // After the launch transaction: anyone deploys the committed Letterbox.
+        // After the launch transaction: anyone deploys the committed Letterbox and Tribunal (seed
+        // waits for both, round 6).
         letterbox = Letterbox(launch.deployLetterbox(vm.getCode("Letterbox.sol:Letterbox")));
+        launch.deployTribunal(vm.getCode("Tribunal.sol:Tribunal"));
     }
 
     function _deployHook() internal {
@@ -343,13 +345,15 @@ contract ForkTestnetTest is Test {
         uint256 before = IMD.balanceOf(a);
         vm.prank(a);
         gate.executeSell(0);
+        uint256 soldAt = _now();
         assertGt(IMD.balanceOf(a), before);
+        _warp(_now() + 20 minutes + 1); // the Tribunal's objection window (seed waits for it)
         seasons.record(id);
         (, uint256 season,) = seasons.currentSeason();
         assertEq(seasons.bestOf(season, a)[0], 45);
         uint256 amt = _amount(a);
         vm.prank(a);
-        vm.expectRevert(abi.encodeWithSelector(CabalGate.Cooldown.selector, _now() + 4 hours));
+        vm.expectRevert(abi.encodeWithSelector(CabalGate.Cooldown.selector, soldAt + 4 hours));
         gate.submitSell(amt, "Another plea too soon.");
     }
 
@@ -447,6 +451,7 @@ contract ForkTestnetTest is Test {
         answer(rid, 45);
         vm.prank(a);
         gate.executeSell(0);
+        _warp(_now() + 20 minutes + 1); // the Tribunal's objection window (seed waits for it)
         seasons.record(id);
         _warp(gate.lastVerdictAt() + DEADMAN + 1);
         assertFalse(gate.cabalAlive());
@@ -484,6 +489,7 @@ contract ForkTestnetTest is Test {
         answer(r2, 45); // run 7: the second plea, at a gain after the first sale, needs 42
         vm.prank(a);
         gate.executeSell(0);
+        _warp(_now() + 20 minutes + 1); // the Tribunal's objection window (seed waits for it)
         seasons.record(id1);
         seasons.record(id2);
         _warp(t0 + 2 * SEASON + 1 hours + 1);
@@ -659,6 +665,7 @@ contract ForkTestnetTest is Test {
         g = gasleft();
         gate.executeSell(0);
         emit log_named_uint("gas: site sale", g - gasleft());
+        _warp(_now() + 20 minutes + 1); // the Tribunal's objection window (seed waits for it)
         g = gasleft();
         seasons.record(id);
         emit log_named_uint("gas: record", g - gasleft());
@@ -723,18 +730,21 @@ contract ForkTestnetTest is Test {
         assertEq(IMD.balanceOf(a) - imdBefore, out);
         assertGe(out * 10_000, _spotValue(p.amount) * 9_500, "at least 95% of spot, no auto-sell fee on a letter");
         assertEq(IMD.balanceOf(runner), 0.25e18);
+        assertFalse(seasons.recorded(id), "the points wait for the objection window");
+        _warp(_now() + 20 minutes + 1); // the Tribunal's objection window (seed waits for it)
+        seasons.record(id);
         assertTrue(seasons.recorded(id));
         assertEq(plea.balanceOf(address(letterbox)), 0);
         assertEq(IMD.balanceOf(address(letterbox)), 0);
     }
 
-    /// Objection! through the live Intake v2: the committed Tribunal is deployed after the launch,
+    /// Objection! through the live Intake v2: the committed Tribunal, deployed after the launch and before the seed,
     /// a second wallet objects to an approved plea (the Tribunal mints the Sepolia oracle fee and
     /// pulls the 0.35 IMD stake), the writer completes with a re-score signed under the Tribunal's
     /// own domain, the stake goes to the season pot, and the points wait for the window. A second
     /// objection the panel cannot answer is void and its stake comes back.
     function test_objectionThroughTheLiveIntake() public {
-        Tribunal tribunal = Tribunal(launch.deployTribunal(vm.getCode("Tribunal.sol:Tribunal")));
+        Tribunal tribunal = Tribunal(launch.tribunal());
         assertEq(address(tribunal), launch.predictTribunal());
         assertEq(address(tribunal.intake()), INTAKE);
         address a = w[1];
@@ -837,6 +847,9 @@ contract ForkTestnetTest is Test {
         assertGe(
             (IMD.balanceOf(a) - imdBefore - 0.25e18) * 10_000, _spotValue(p.amount) * 9_500, "sale + own tip, no fee"
         );
+        assertFalse(seasons.recorded(id), "the points wait for the objection window");
+        _warp(_now() + 20 minutes + 1); // the Tribunal's objection window (seed waits for it)
+        seasons.record(id);
         assertTrue(seasons.recorded(id));
         assertEq(IMD.balanceOf(address(letterbox)), 0);
     }

@@ -211,7 +211,7 @@ Then:
    LAUNCH=… forge script script/DeployLetterbox.s.sol --rpc-url $RPC --private-key $KEY --broadcast
    ```
 
-2. **Deploy the Tribunal.** Anyone calls `PleaLaunch.deployTribunal(creationCode)` once (`script/DeployTribunal.s.sol`); the code must match the hash committed at launch (a zero hash means the launch has no objections). `Seasons` finds it through PleaLaunch.
+2. **Deploy the Tribunal.** Anyone calls `PleaLaunch.deployTribunal(creationCode)` once (`script/DeployTribunal.s.sol`); the code must match the hash committed at launch (a zero hash means the launch has no objections). `Seasons` finds it through PleaLaunch. With objections on, `seed` waits for it, so no plea is ever recorded out of its reach.
 
    ```
    LAUNCH=… forge script script/DeployTribunal.s.sol --rpc-url $RPC --private-key $KEY --broadcast
@@ -224,7 +224,7 @@ Then:
    forge script script/MineSalt.s.sol --rpc-url $RPC --private-key $KEY --broadcast
    ```
 
-4. **Open trading.** `PleaLaunch.seed()` creates the pool at a 14,000 IMD market cap (5,700 on the Sepolia runs; at least that, within one 60-tick spacing: the band is aligned to the grid on the PLEA-only side) and starts the Cabal. The hook and the Letterbox must exist first. PLEA's current owner may call it any time, and anyone may call it once `START` has passed.
+4. **Open trading.** `PleaLaunch.seed()` creates the pool at a 14,000 IMD market cap (5,700 on the Sepolia runs; at least that, within one 60-tick spacing: the band is aligned to the grid on the PLEA-only side) and starts the Cabal. The hook, the Letterbox and (with objections on) the Tribunal must exist first. PLEA's current owner may call it any time, and anyone may call it once `START` has passed.
 
 **Ethereum mainnet settings** (`launch.json` on this branch, `mainnet`; `testnet7` is the same code with the Sepolia settings (run 7), `testnet6` run 6's, `testnet4` run 4's (launch #1466), `testnet3` run 3's (launch #1426), `testnet` run 2's):
 
@@ -245,7 +245,7 @@ Then:
 | Seed | 14,000 IMD market cap (`PleaHook.MARKET_CAP_IMD`; 5,700 on the Sepolia runs) |
 | Owner | **TODO** (a fresh wallet; the owner cannot play seasons) |
 
-The manifest rehearsal measures the launch as the chain charges it (the init codes as transaction data, then their execution) plus the overhead of IMD's real factory, measured by sending these five codes through the mainnet ProjectFactory on a fork (994,547 gas; the test adds 1.1M): about **13.22M gas**, and about **16.13M** with the 22% headroom IMD's deployer adds to a gas limit, under the 16,777,216 cap; the test asserts it. `deployLetterbox` is its own transaction of about **5.38M** gas, and `deployTribunal` about **4.81M**, `deployHook` about **5.4M** on Ethereum's schedule. `test/fork/ForkTestnet.t.sol` rehearses the whole run on a Sepolia fork against the live Intake v2:
+The manifest rehearsal measures the launch as the chain charges it (the init codes as transaction data, then their execution) plus the overhead of IMD's real factory, measured by sending these five codes through the mainnet ProjectFactory on a fork (994,547 gas; the test adds 1.1M): about **13.42M gas**, and about **16.38M** with the 22% headroom IMD's deployer adds to a gas limit, under the 16,777,216 cap; the test asserts it. `deployLetterbox` is its own transaction of about **5.58M** gas, and `deployTribunal` about **5.24M**, `deployHook` about **5.4M** on Ethereum's schedule. `test/fork/ForkTestnet.t.sol` rehearses the whole run on a Sepolia fork against the live Intake v2:
 
 ```
 SEPOLIA_RPC_URL=https://ethereum-sepolia-rpc.publicnode.com forge test --match-path test/fork/ForkTestnet.t.sol -vv

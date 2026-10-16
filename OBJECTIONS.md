@@ -59,7 +59,7 @@ No PLEA holding is required: a balance check is beaten with dust.
 
 **What can be objected to:** a plea whose `gate.result(id)` reports `approved` (status `Approved`, `Executed` or `Lapsed`, appeals included) and that:
 - is at most `OBJECTION_WINDOW` (20 min) past its `verdictAt`;
-- is not yet recorded in `Seasons` (this covers pleas recorded before the Tribunal existed);
+- is not yet recorded in `Seasons` (since round 6 `seed` waits for a committed Tribunal, so no plea is recorded before it exists);
 - has a seller who can earn points (not excluded);
 - has no sustained ruling, and fewer than two rulings plus pending objections; every objector must differ from the one already ruled and from the one pending. Two rolls at most, so a rich rival cannot re-roll a leader's plea until it falls, and the seller's own "friendly" objection (meant to shield the plea) only costs them 0.85 IMD, can only lower their own points, and leaves the other slot open at once, even in the window's last second. Two friendly wallets can exhaust both slots; the contracts cannot identify common wallet control.
 
@@ -174,7 +174,7 @@ A case closes to new objections after a sustain or two rulings. While the window
 | `settle(id)` | anyone | Pays a decided objection's stake once: `Sustained` or `Void` → objector; `Overruled` → `Seasons` (transfer, then `checkpointObjection(pleaId, STAKE)`, which credits the plea's season, or rollover if closed, and calls `checkpoint` for unrelated donations). |
 | `standing(pleaId) → (bool held, bool sustained, uint8 lowest)` | view | What `Seasons` reads (below). |
 | `question(id)`, `body(id)` | view | The judges' question and the JSON body. |
-| `status(pleaId) → string` | view | One line for explorers: `Plea #7 · objections open until 07:25 UTC`, `· OBJECTION #3 pending`, `· OBJECTIONS #3 and #4 pending`, `· SUSTAINED (29 vs need 33) · no points`, `· OVERRULED (36 vs need 33)`. |
+| `status(pleaId) → string` | view | One line for explorers: `Plea #7 · objections open until 07:25 UTC`, `· OBJECTION #3 pending`, `· OBJECTIONS #3 and #4 pending`, `· SUSTAINED (29 vs need 33) · no points`, `· OVERRULED (36 vs need 33) · counts 36 points` (the points Seasons counts: × 1.2 for a seat holder, `pointsOf` once recorded). |
 
 **`standing(pleaId)`** — an excluded seller's plea (the launch owner's) is never held: nobody may object to it and Seasons never records it, so `status` says `seller excluded: no points, nothing to object to`.
 

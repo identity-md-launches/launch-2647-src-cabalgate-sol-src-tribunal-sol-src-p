@@ -79,6 +79,13 @@ abstract contract Fixture is Test {
         return CREDIT_GAS;
     }
 
+    /// @dev The owner seeds (the hook, the Letterbox and a committed Tribunal exist by now).
+    function openTrading() internal virtual {
+        vm.prank(OWNER);
+        launch.seed();
+        afterSeed();
+    }
+
     /// @dev Default: past the 90-minute launch window (no extra fee, no buy cap).
     function afterSeed() internal virtual {
         skip(91 minutes);
@@ -97,9 +104,7 @@ abstract contract Fixture is Test {
         intake = MockIntake(ArtifactDeployment.deploy("Mocks.sol:MockIntake", abi.encode(oracleFeeToken())));
         deployLaunch();
         deployHook();
-        vm.prank(OWNER);
-        launch.seed();
-        afterSeed();
+        openTrading();
         router = BuyRouter(
             ArtifactDeployment.deploy("Mocks.sol:BuyRouter", abi.encode(IPoolManager(address(pm)), hook, imd, plea))
         );

@@ -23,6 +23,8 @@ interface ISeasonsForTribunal {
     function excluded(address wallet) external view returns (bool);
     function checkpoint() external;
     function checkpointObjection(uint256 pleaId, uint256 amount) external;
+    function pointsOf(uint256 pleaId) external view returns (uint8);
+    function pointsFor(address wallet, uint8 score) external view returns (uint8);
 }
 
 interface IMintableFee {
@@ -226,6 +228,8 @@ contract Tribunal is OracleAttestationConsumer, ReentrancyGuardTransient {
             return string.concat(head, "OBJECTIONS #", Strings.toString(a), " and #", Strings.toString(b), " pending");
         }
         if (a != 0 || b != 0) return string.concat(head, "OBJECTION #", Strings.toString(a | b), " pending");
+        // The points Seasons counted once recorded, else what it would count now: the lower score,
+        // times 1.2 for a seat holder (round 6, R6-A1-1; the Letterbox's line does the same).
         string memory tail = c.count == 0
             ? ""
             : string.concat(
@@ -234,7 +238,11 @@ contract Tribunal is OracleAttestationConsumer, ReentrancyGuardTransient {
                 " vs need ",
                 Strings.toString(need),
                 unicode") · counts ",
-                Strings.toString(c.lowest < score ? c.lowest : score),
+                Strings.toString(
+                    seasons.recorded(pleaId)
+                        ? seasons.pointsOf(pleaId)
+                        : seasons.pointsFor(seller, c.lowest < score ? c.lowest : score)
+                ),
                 " points"
             );
         if (c.count < MAX_OBJECTIONS && block.timestamp <= uint256(verdictAt) + OBJECTION_WINDOW) {

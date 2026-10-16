@@ -27,6 +27,9 @@ contract LaunchTest is Test {
     CabalGate gate;
     PleaLaunch launch;
     address stacker = address(0x5747);
+    bool overrideHashes;
+    bytes32 letterboxHashOverride;
+    bytes32 tribunalHashOverride;
 
     function setUp() public {
         vm.chainId(11155111);
@@ -76,8 +79,8 @@ contract LaunchTest is Test {
                     START,
                     launchAsset,
                     mint,
-                    keccak256(vm.getCode("Letterbox.sol:Letterbox")),
-                    bytes32(0)
+                    overrideHashes ? letterboxHashOverride : keccak256(vm.getCode("Letterbox.sol:Letterbox")),
+                    overrideHashes ? tribunalHashOverride : bytes32(0)
                 )
             )
         );
@@ -168,6 +171,29 @@ contract LaunchTest is Test {
         this.launchWith(address(imd), fee, true); // the gate pulls IMD, the launch mints another token
         this.launchWith(fee, fee, true); // Sepolia's settings
         this.launchWith(address(imd), address(imd), false); // the mainnet settings
+    }
+
+    /// @dev Round 6 (R6-A2-1): a zero Letterbox hash, or the Tribunal's in its place, would leave
+    /// trading closed for good; the launch refuses both. A zero Tribunal hash stays "objections off".
+    function test_theLaunchRefusesAZeroOrSwappedLetterboxHash() public {
+        bytes32 lb = keccak256(vm.getCode("Letterbox.sol:Letterbox"));
+        bytes32 tr = keccak256(vm.getCode("Tribunal.sol:Tribunal"));
+        vm.expectRevert(PleaLaunch.WrongInitCode.selector);
+        this.launchWithHashes(bytes32(0), bytes32(0));
+        vm.expectRevert(PleaLaunch.WrongInitCode.selector);
+        this.launchWithHashes(bytes32(0), tr);
+        vm.expectRevert(PleaLaunch.WrongInitCode.selector);
+        this.launchWithHashes(tr, tr);
+        this.launchWithHashes(lb, bytes32(0));
+        this.launchWithHashes(lb, tr);
+    }
+
+    function launchWithHashes(bytes32 letterboxHash, bytes32 tribunalHash) external {
+        letterboxHashOverride = letterboxHash;
+        tribunalHashOverride = tribunalHash;
+        overrideHashes = true;
+        deployAll(address(pm));
+        overrideHashes = false;
     }
 
     function launchWith(address gateAsset, address launchAsset, bool mint) external {

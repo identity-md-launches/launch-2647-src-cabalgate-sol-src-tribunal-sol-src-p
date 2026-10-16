@@ -568,6 +568,25 @@ contract TribunalTest is Fixture {
         assertTrue(_contains(tribunal.status(99), "not approved"));
     }
 
+    /// @dev Round 6 (R6-A1-1): the overruled line counts a seat holder's points (score x 1.2), the
+    /// provisional figure before the recording and `Seasons.pointsOf` after it.
+    function test_statusCountsTheSeatMultiplier() public {
+        seat.mint(alice);
+        uint256 id = approvedBy(alice);
+        uint256 oid = objectTo(bob, id);
+        uint8 n = need(id);
+        assertTrue(rule(oid, n)); // overruled at the need
+        uint8 pts = seasons.pointsFor(alice, n);
+        assertEq(pts, uint8(uint256(n) * 12 / 10));
+        assertTrue(_contains(tribunal.status(id), string.concat("counts ", vm.toString(pts), " points")));
+        skip(WINDOW + 1);
+        seasons.record(id);
+        assertEq(seasons.pointsOf(id), pts);
+        assertTrue(_contains(tribunal.status(id), string.concat("counts ", vm.toString(pts), " points")));
+        seat.burn(alice); // the recorded figure stays what Seasons counted
+        assertTrue(_contains(tribunal.status(id), string.concat("counts ", vm.toString(pts), " points")));
+    }
+
     function test_settleNeedsARuling() public {
         uint256 id = approvedBy(alice);
         uint256 oid = objectTo(bob, id);
