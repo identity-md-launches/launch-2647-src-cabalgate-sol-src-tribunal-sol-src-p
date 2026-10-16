@@ -162,6 +162,9 @@ contract PleaHook {
     uint256 public retainedImd;
     /// @notice Wall reserve held as ERC-6909 IMD claims (redeemed by `rebalance`).
     uint256 public retainClaims;
+    /// @notice PLEA owed to the burn while a sale's input had not settled yet: ERC-6909 PLEA claims
+    /// `rebalance` redeems and burns (round 7, R7-A3-1).
+    uint256 public pleaClaims;
     uint256 public totalBurned;
     uint256 public totalOwnerFees;
     uint256 public totalCashback;
@@ -332,7 +335,7 @@ contract PleaHook {
 
     function pendingRebalance() public view returns (bool) {
         if (!seeded) return false;
-        return retainedImd + retainClaims >= WALL_THRESHOLD || pleaInWall() >= WALL_MIN_FILL;
+        return retainedImd + retainClaims >= WALL_THRESHOLD || pleaInWall() >= WALL_MIN_FILL || pleaClaims != 0;
     }
 
     function _pleaIn(Band memory b, uint160 sqrtP) internal view returns (uint256) {
@@ -518,11 +521,6 @@ contract PleaHook {
         // The specified-side fee was taken on the requested amount; charge it on the fill only.
         uint256 specDue = specAmt * (specifiedIsImd ? _imdRate(buy) : PLEA_BURN_BPS) / BPS;
         if (specDue > specFee) specDue = specFee;
-        if (specFee > specDue) {
-            // No resolved trader (only after the death: a router that cannot name its caller): the
-            // router is refunded, as it is the only party the hook knows.
-            _refund(trader == address(0) ? sender : trader, specifiedIsImd, specFee - specDue);
-        }
 
         uint256 imdBasis;
         uint256 imdFee;
@@ -551,6 +549,14 @@ contract PleaHook {
             ret = int128(int256(imdFee));
         }
         uint256 cashback = _payFees(trader, buy, imdBasis, imdFee, pleaFee, priceBefore);
+        // The unearned part of the specified-side fee is refunded after the payouts, so it never spends
+        // the IMD `_payFees` counted on: a refund the PoolManager cannot pay now is an ERC-6909 claim
+        // (round 7, R7-A3-2).
+        if (specFee > specDue) {
+            // No resolved trader (only after the death: a router that cannot name its caller): the
+            // router is refunded, as it is the only party the hook knows.
+            _refund(trader == address(0) ? sender : trader, specifiedIsImd, specFee - specDue);
+        }
         if (trader != address(0)) {
             _updateBasis(trader, buy, imdBasis + imdFee, buy ? pleaAmt - pleaFee : pleaAmt + pleaFee);
         }
@@ -580,11 +586,7 @@ contract PleaHook {
         internal
         returns (uint256 cashback)
     {
-        if (pleaFee != 0) {
-            poolManager.take(Currency.wrap(plea), address(this), pleaFee);
-            IPLEA(plea).burn(pleaFee);
-            totalBurned += pleaFee;
-        }
+        _burnPlea(pleaFee);
         uint256 toPrize;
         if (imdFee != 0) {
             // No resolved trader (a router that cannot name its caller): the cashback stays in the pool.
@@ -629,6 +631,21 @@ contract PleaHook {
             totalPoolFees += toPool;
         }
         emit FeesTaken(trader, buy, imdBasis, imdFee, pleaFee, toPrize);
+    }
+
+    /// @dev Burns PLEA the hook is owed in the PoolManager. A swap's afterSwap runs before the swapper
+    /// settles its input, so the PoolManager may hold less PLEA than a sale's trim or fee: then the PLEA
+    /// is kept as ERC-6909 claims for `rebalance` to burn instead of reverting the sale (round 7, R7-A3-1).
+    function _burnPlea(uint256 amount) internal {
+        if (amount == 0) return;
+        if (IERC20(plea).balanceOf(address(poolManager)) < amount) {
+            poolManager.mint(address(this), _id(plea), amount);
+            pleaClaims += amount;
+        } else {
+            poolManager.take(Currency.wrap(plea), address(this), amount);
+            IPLEA(plea).burn(amount);
+            totalBurned += amount;
+        }
     }
 
     function _payImd(address to, uint256 amount, bool asClaims) internal {
@@ -791,11 +808,7 @@ contract PleaHook {
         if (toRemove == 0) return;
         (uint256 pleaOut, uint256 imdOut) = _removeLiquidity(m.tickLower, m.tickUpper, toRemove);
         market.liquidity = m.liquidity - uint128(toRemove);
-        if (pleaOut != 0) {
-            poolManager.take(Currency.wrap(plea), address(this), pleaOut);
-            IPLEA(plea).burn(pleaOut);
-            totalBurned += pleaOut;
-        }
+        _burnPlea(pleaOut);
         if (imdOut != 0) {
             poolManager.mint(address(this), _id(address(imd)), imdOut);
             retainClaims += imdOut;
@@ -835,6 +848,13 @@ contract PleaHook {
     /// fresh reserve deployed in this call.
     /// @return acted Whether a wall was closed or deployed, or claims redeemed.
     function _rebalance() internal returns (uint256 work, bool acted) {
+        uint256 owed = pleaClaims;
+        if (owed != 0) {
+            pleaClaims = 0;
+            poolManager.burn(address(this), _id(plea), owed);
+            _burnPlea(owed);
+            acted = true;
+        }
         uint256 claims = retainClaims;
         if (claims != 0) {
             retainClaims = 0;
@@ -910,11 +930,7 @@ contract PleaHook {
         (pleaOut, imdOut) = _removeLiquidity(w.tickLower, w.tickUpper, w.liquidity);
         delete wall;
         wallImd = 0;
-        if (pleaOut != 0) {
-            poolManager.take(Currency.wrap(plea), address(this), pleaOut);
-            IPLEA(plea).burn(pleaOut);
-            totalBurned += pleaOut;
-        }
+        _burnPlea(pleaOut);
         if (imdOut != 0) {
             poolManager.take(Currency.wrap(address(imd)), address(this), imdOut);
             retainedImd += imdOut;

@@ -265,6 +265,43 @@ contract AuditRevisionTest is Fixture {
         assertEq(gate.factScore(alice, amount), 16 + 7 + 10 + 5, "held since trading opened, not the dust's loss");
     }
 
+    /// @dev Round 7 A1's setup: Alice's buy record is a day old and more than 11x up (hold 2, profit 4),
+    /// while PLEA no record covers scores hold 2 (trading opened a day ago) and profit 10; she also
+    /// holds three times her bought PLEA as a prize, so a plea of the record is 25% of her balance.
+    function mixedHolder() internal returns (uint256 held) {
+        buy(alice, 10e18);
+        buy(bob, 30_000e18);
+        buy(carol, 30_000e18);
+        skip(1 days);
+        buy(bob, 1e18); // the hour's checkpoint at the lifted price
+        (, held,) = hook.basisOf(alice);
+        vm.prank(address(seasons));
+        plea.transfer(alice, held * 3);
+    }
+
+    /// One wei over the buy record no longer rescores the whole plea as received PLEA (round 7,
+    /// R7-A1-1): the uncovered wei weighs one wei in the mean, so the facts and the need stay the
+    /// record's, and a plea the record cannot pass stays refused.
+    function test_oneWeiOverTheBuyRecordKeepsTheRecordsFacts() public {
+        uint256 held = mixedHolder();
+        uint8 covered = gate.factScore(alice, held);
+        assertEq(covered, 9 + 2 + 4 + 9, "covered: share 9, one day 2, gain over 1,000% 4, trend up 9");
+        uint256 over = held + 1;
+        assertEq(gate.factScore(alice, over), covered, "one wei over the record");
+        vm.expectRevert(abi.encodeWithSelector(CabalGate.CannotPass.selector, 71 - uint256(covered)));
+        plead(alice, over);
+    }
+
+    /// A plea larger than the buy record takes the PLEA-weighted mean of the record's facts and the
+    /// received PLEA's, rounded down: a fifth of the plea uncovered moves the 6 of the record a
+    /// fifth of the way to the 12 of received PLEA (7.2 -> 7).
+    function test_aPartlyCoveredPleaTakesThePleaWeightedMean() public {
+        uint256 held = mixedHolder();
+        uint256 amount = held + held / 4;
+        assertEq(gate.factScore(alice, amount), 9 + 7 + 9, "share 9 (31.25%), facts (4 x 6 + 1 x 12) / 5 = 7, up 9");
+        assertEq(gate.factScore(alice, held * 2), 3 + 9 + 9, "share 3 (50%), half and half: (6 + 12) / 2 = 9, up 9");
+    }
+
     function paid(address who) internal view returns (uint256) {
         return imd.balanceOf(who) + pm.balanceOf(who, uint256(uint160(address(imd))));
     }

@@ -63,7 +63,7 @@ No PLEA holding is required: a balance check is beaten with dust.
 - has a seller who can earn points (not excluded);
 - has no sustained ruling, and fewer than two rulings plus pending objections; every objector must differ from the one already ruled and from the one pending. Two rolls at most, so a rich rival cannot re-roll a leader's plea until it falls, and the seller's own "friendly" objection (meant to shield the plea) only costs them 0.85 IMD, can only lower their own points, and leaves the other slot open at once, even in the window's last second. Two friendly wallets can exhaust both slots; the contracts cannot identify common wallet control.
 
-**Objection and plea text:** 1–280 bytes of well-formed UTF-8, one line, no control, zero-width, bidi, tag or variation-selector characters, and no `[PLEA` / `[/PLEA` or `[OBJECTION` / `[/OBJECTION` marker prefixes (any case). The gate also rejects objection markers because the Tribunal quotes its question verbatim.
+**Objection and plea text:** 1–280 bytes of well-formed UTF-8, one line, no control or format characters (Unicode's whole Cf class: zero-width, bidi, tags and the other invisible controls), no line or paragraph separator, no variation selector, and no `[PLEA` / `[/PLEA` or `[OBJECTION` / `[/OBJECTION` marker prefixes (any case). The gate also rejects objection markers because the Tribunal quotes its question verbatim.
 
 **Sustain rule:** `newScore + 2 < need`, where `need` is the plea's stored need (71 − fact score at submit time; 70 before run 7), not recomputed. The margin of 2 is the panels' own noise (live scores land within about ±2), so a 33-vs-33 approval is not erased by a coin flip; it must come back as 30 or less.
 

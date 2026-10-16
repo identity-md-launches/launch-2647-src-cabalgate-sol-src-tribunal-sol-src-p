@@ -476,8 +476,9 @@ contract Tribunal is OracleAttestationConsumer, ReentrancyGuardTransient {
         }
     }
 
-    /// @dev The gate's text rules: 1-280 bytes of well-formed UTF-8 with no control, zero-width,
-    /// Bidi_Control, tag or variation-selector characters, and no [PLEA, [/PLEA, [OBJECTION or
+    /// @dev The gate's text rules: 1-280 bytes of well-formed UTF-8 with no control, format (Unicode
+    /// Cf: zero-width, Bidi_Control, tags, the Arabic and Syriac number signs, annotation and shorthand
+    /// controls), separator or variation-selector characters, and no [PLEA, [/PLEA, [OBJECTION or
     /// [/OBJECTION marker.
     function _validateText(string calldata text) internal pure {
         bytes calldata b = bytes(text);
@@ -499,34 +500,29 @@ contract Tribunal is OracleAttestationConsumer, ReentrancyGuardTransient {
                 else if (c >= 0xf0 && c <= 0xf4) len = 4;
                 else revert BadObjectionText();
                 if (i + len > n) revert BadObjectionText();
+                uint256 cp = c & (0x7f >> len);
                 for (uint256 k = 1; k < len; ++k) {
-                    if (_at(b, i + k) & 0xc0 != 0x80) revert BadObjectionText();
+                    uint256 cb = _at(b, i + k);
+                    if (cb & 0xc0 != 0x80) revert BadObjectionText();
+                    cp = (cp << 6) | (cb & 0x3f);
                 }
-                uint8 c1 = _at(b, i + 1);
                 if (
-                    (c == 0xe0 && c1 < 0xa0) || (c == 0xed && c1 > 0x9f) || (c == 0xf0 && c1 < 0x90)
-                        || (c == 0xf4 && c1 > 0x8f)
+                    (len == 3 && cp < 0x800) || (len == 4 && cp < 0x10000) || (cp >> 11 == 0x1b) || cp > 0x10ffff
+                        || _refused(cp)
                 ) revert BadObjectionText();
-                if (len == 2) {
-                    if ((c == 0xc2 && (c1 <= 0x9f || c1 == 0xad)) || (c == 0xd8 && c1 == 0x9c)) {
-                        revert BadObjectionText();
-                    }
-                } else if (len == 3) {
-                    uint8 c2 = _at(b, i + 2);
-                    if (c == 0xe2 && c1 == 0x80 && ((c2 >= 0x8b && c2 <= 0x8f) || (c2 >= 0xa8 && c2 <= 0xae))) {
-                        revert BadObjectionText();
-                    }
-                    if (c == 0xe2 && c1 == 0x81 && ((c2 >= 0xa0 && c2 <= 0xa4) || (c2 >= 0xa6 && c2 <= 0xa9))) {
-                        revert BadObjectionText();
-                    }
-                    if (c == 0xef && c1 == 0xbb && c2 == 0xbf) revert BadObjectionText();
-                    if (c == 0xef && c1 == 0xb8 && c2 <= 0x8f) revert BadObjectionText();
-                    if (c == 0xe1 && c1 == 0xa0 && c2 == 0x8e) revert BadObjectionText();
-                } else {
-                    if (c == 0xf3 && c1 == 0xa0) revert BadObjectionText();
-                }
                 i += len;
             }
+        }
+    }
+
+    /// @dev The gate's refused characters beyond ASCII (CabalGate._refused, verbatim).
+    function _refused(uint256 cp) internal pure returns (bool) {
+        unchecked {
+            return cp <= 0x9f || cp == 0xad || cp - 0x600 <= 5 || cp == 0x61c || cp == 0x6dd || cp == 0x70f
+                || cp - 0x890 <= 1 || cp == 0x8e2 || cp == 0x180e || cp - 0x200b <= 4 || cp - 0x2028 <= 6
+                || cp - 0x2060 <= 4 || cp - 0x2066 <= 9 || cp - 0xfe00 <= 15 || cp == 0xfeff || cp - 0xfff9 <= 2
+                || cp == 0x110bd || cp == 0x110cd || cp - 0x13430 <= 15 || cp - 0x1bca0 <= 3 || cp - 0x1d173 <= 7
+                || cp >> 12 == 0xe0;
         }
     }
 

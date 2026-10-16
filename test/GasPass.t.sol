@@ -90,7 +90,8 @@ contract GasPassTest is Fixture {
     // ---------------------------------------------------------------- the plea text rules
 
     /// The text check reads bytes without bounds checks now; it must match the reference rules.
-    /// Run 5's delimiter finding adds [OBJECTION prefixes to both checks below.
+    /// Run 5's delimiter finding adds [OBJECTION prefixes to both checks below; round 7 (R7-A1-2)
+    /// adds the rest of Unicode's format characters to both, the gate now decoding code points.
     /// forge-config: default.fuzz.runs = 5000
     function testFuzz_textCheckMatchesTheReferenceRules(uint256 seed) public {
         bytes memory t = _mixed(seed);
@@ -107,7 +108,7 @@ contract GasPassTest is Fixture {
     }
 
     function test_textCheckEdgeCases() public {
-        bytes[12] memory valid = [
+        bytes[16] memory valid = [
             bytes("a"),
             bytes("[pleb] is fine, [/ple too, and [ alone"),
             hex"c3a9e282acf09f9880", // é € 😀
@@ -119,9 +120,13 @@ contract GasPassTest is Fixture {
             hex"ed9fbf", // U+D7FF
             hex"f48fbfbf", // U+10FFFF
             bytes('quote " and backslash \\'),
-            bytes("PLEA without a bracket")
+            bytes("PLEA without a bracket"),
+            hex"d886", // U+0606, next to the Arabic number signs
+            hex"efbfbc", // U+FFFC, next to the annotation characters
+            hex"f09d85bb", // U+1D17B, next to the musical format controls
+            hex"e281b0" // U+2070 superscript zero, just past the refused U+206F
         ];
-        bytes[16] memory invalid = [
+        bytes[23] memory invalid = [
             bytes(""),
             bytes("[PLEA]"),
             bytes("x [/pLeA"),
@@ -137,7 +142,14 @@ contract GasPassTest is Fixture {
             hex"eda080", // surrogate
             hex"e08080", // overlong
             hex"f4908080", // above U+10FFFF
-            hex"41c3" // cut off
+            hex"41c3", // cut off
+            hex"d880", // U+0600 Arabic number sign
+            hex"dc8f", // U+070F Syriac abbreviation mark
+            hex"e0a3a2", // U+08E2 Arabic disputed end of ayah
+            hex"e281aa", // U+206A deprecated format control
+            hex"efbfb9", // U+FFF9 interlinear annotation anchor
+            hex"f09390b0", // U+13430 Egyptian hieroglyph vertical joiner
+            hex"f09d85b3" // U+1D173 musical symbol begin beam
         ];
         for (uint256 i; i < valid.length; ++i) {
             assertTrue(_refValid(valid[i]), "reference: valid");
@@ -165,7 +177,7 @@ contract GasPassTest is Fixture {
 
     /// @dev Fragments of valid, forbidden and broken text, joined at random.
     function _mixed(uint256 seed) internal pure returns (bytes memory t) {
-        bytes[46] memory pal = [
+        bytes[56] memory pal = [
             bytes("a"),
             bytes("Z"),
             bytes(" "),
@@ -211,7 +223,17 @@ contract GasPassTest is Fixture {
             hex"f5",
             hex"e282",
             hex"f09f98",
-            hex"ff"
+            hex"ff",
+            hex"d880",
+            hex"d886",
+            hex"db9d",
+            hex"e0a291",
+            hex"e281af",
+            hex"e281b0",
+            hex"efbfbb",
+            hex"efbfbc",
+            hex"f09bb2a0",
+            hex"f09d85bb"
         ];
         if (seed % 97 == 0) return "";
         uint256 n = 1 + seed % 24;
@@ -258,6 +280,8 @@ contract GasPassTest is Fixture {
             ) return false;
             if (len == 2) {
                 if ((c == 0xc2 && (c1 <= 0x9f || c1 == 0xad)) || (c == 0xd8 && c1 == 0x9c)) return false;
+                // round 7: U+0600-0605, U+06DD, U+070F
+                if ((c == 0xd8 && c1 <= 0x85) || (c == 0xdb && c1 == 0x9d) || (c == 0xdc && c1 == 0x8f)) return false;
             } else if (len == 3) {
                 uint8 c2 = uint8(b[i + 2]);
                 if (c == 0xe2 && c1 == 0x80 && ((c2 >= 0x8b && c2 <= 0x8f) || (c2 >= 0xa8 && c2 <= 0xae))) {
@@ -269,8 +293,21 @@ contract GasPassTest is Fixture {
                 if (c == 0xef && c1 == 0xbb && c2 == 0xbf) return false;
                 if (c == 0xef && c1 == 0xb8 && c2 <= 0x8f) return false;
                 if (c == 0xe1 && c1 == 0xa0 && c2 == 0x8e) return false;
+                // round 7: U+206A-206F, U+FFF9-FFFB, U+0890-0891, U+08E2
+                if (c == 0xe2 && c1 == 0x81 && c2 >= 0xaa && c2 <= 0xaf) return false;
+                if (c == 0xef && c1 == 0xbf && c2 >= 0xb9 && c2 <= 0xbb) return false;
+                if (c == 0xe0 && c1 == 0xa2 && (c2 == 0x90 || c2 == 0x91)) return false;
+                if (c == 0xe0 && c1 == 0xa3 && c2 == 0xa2) return false;
             } else {
                 if (c == 0xf3 && c1 == 0xa0) return false;
+                // round 7: U+110BD, U+110CD, U+13430-1343F, U+1BCA0-1BCA3, U+1D173-1D17A
+                uint8 c2 = uint8(b[i + 2]);
+                uint8 c3 = uint8(b[i + 3]);
+                if (c == 0xf0 && c1 == 0x91 && c2 == 0x82 && c3 == 0xbd) return false;
+                if (c == 0xf0 && c1 == 0x91 && c2 == 0x83 && c3 == 0x8d) return false;
+                if (c == 0xf0 && c1 == 0x93 && c2 == 0x90 && c3 >= 0xb0) return false;
+                if (c == 0xf0 && c1 == 0x9b && c2 == 0xb2 && c3 >= 0xa0 && c3 <= 0xa3) return false;
+                if (c == 0xf0 && c1 == 0x9d && c2 == 0x85 && c3 >= 0xb3 && c3 <= 0xba) return false;
             }
             i += len;
         }

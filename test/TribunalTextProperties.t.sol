@@ -3,6 +3,7 @@ pragma solidity 0.8.26;
 
 import {SepoliaFixture} from "./utils/SepoliaFixture.sol";
 import {Tribunal} from "src/Tribunal.sol";
+import {CabalGate} from "src/CabalGate.sol";
 
 contract TribunalTextPropertiesTest is SepoliaFixture {
     function withTribunal() internal pure override returns (bool) {
@@ -79,7 +80,7 @@ contract TribunalTextPropertiesTest is SepoliaFixture {
 
     function test_malformedUtf8ControlsAndInvisibleCharactersAreRejected() public {
         uint256 pid = approvedPlea(alice, 40);
-        bytes[27] memory bad = [
+        bytes[44] memory bad = [
             bytes(hex"00"),
             hex"09",
             hex"0a",
@@ -106,7 +107,24 @@ contract TribunalTextPropertiesTest is SepoliaFixture {
             hex"f5808080",
             hex"f3a08081",
             hex"f3a08480",
-            hex"f09f99"
+            hex"f09f99",
+            hex"d880",
+            hex"d885",
+            hex"db9d",
+            hex"dc8f",
+            hex"e0a290",
+            hex"e0a291",
+            hex"e0a3a2",
+            hex"e281aa",
+            hex"e281af",
+            hex"efbfb9",
+            hex"efbfbb",
+            hex"f09182bd",
+            hex"f091838d",
+            hex"f09390b0",
+            hex"f09390bf",
+            hex"f09bb2a3",
+            hex"f09d85ba" // the format characters round 7 added (R7-A1-2)
         ];
         for (uint256 i; i < bad.length; ++i) {
             string memory text = string(bytes.concat(bytes("ordinary prefix "), bad[i]));
@@ -116,6 +134,64 @@ contract TribunalTextPropertiesTest is SepoliaFixture {
         }
         assertEq(tribunal.nextId(), 1);
         assertEq(imd.balanceOf(address(tribunal)), 0);
+    }
+
+    /// The Tribunal refuses exactly the objection texts the gate refuses as pleas: the two copies of
+    /// the text rules agree (round 7 changed both, R7-A1-2).
+    /// forge-config: default.fuzz.runs = 2000
+    function testFuzz_theTribunalRefusesExactlyWhatTheGateRefuses(uint256 seed) public {
+        bytes memory t = _mixedText(seed);
+        uint256 pid = approvedPlea(alice, 40);
+        buy(carol, 50e18);
+        uint256 amount = plea.balanceOf(carol) / 10;
+        vm.prank(carol);
+        (bool okGate, bytes memory retGate) =
+            address(gate).call(abi.encodeCall(CabalGate.submitSell, (amount, string(t))));
+        vm.prank(bob);
+        (bool okTribunal, bytes memory retTribunal) =
+            address(tribunal).call(abi.encodeCall(Tribunal.object, (pid, string(t))));
+        assertEq(okTribunal, okGate, "the two text checks disagree");
+        if (!okGate) {
+            assertEq(bytes4(retGate), CabalGate.BadPleaText.selector);
+            assertEq(bytes4(retTribunal), Tribunal.BadObjectionText.selector);
+        }
+    }
+
+    /// @dev Plain letters joined with the characters at the edges of the refused ranges.
+    function _mixedText(uint256 seed) internal pure returns (bytes memory t) {
+        bytes[26] memory pal = [
+            bytes("a"),
+            bytes(" "),
+            bytes("["),
+            bytes("/"),
+            bytes("PLEA"),
+            bytes("objection"),
+            hex"c3a9",
+            hex"f09f9880",
+            hex"c2ad",
+            hex"d880",
+            hex"d886",
+            hex"db9d",
+            hex"dc8f",
+            hex"e0a291",
+            hex"e0a3a2",
+            hex"e281a5",
+            hex"e281aa",
+            hex"e281b0",
+            hex"efbfbb",
+            hex"efbfbc",
+            hex"f09390bf",
+            hex"f09d85bb",
+            hex"eda080",
+            hex"f3a08081",
+            hex"e282",
+            hex"f09bb2a3"
+        ];
+        uint256 n = 1 + seed % 40;
+        for (uint256 i; i < n; ++i) {
+            seed = uint256(keccak256(abi.encode(seed, i)));
+            t = bytes.concat(t, seed % 2 == 0 ? pal[seed % pal.length] : pal[seed % 2]);
+        }
     }
 
     function test_oneByteAnd280BytesAcceptButZeroAnd281Reject() public {

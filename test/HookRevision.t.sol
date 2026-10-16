@@ -392,6 +392,60 @@ contract HookRevisionTest is Fixture {
             assertLe(_pleaPriceTick(hook.wallGuardTick()), _pleaPriceTick(hook.refTick()) + 1, "passed refTick");
         }
     }
+
+    // ------------------------------------------------------------------ round 7
+
+    /// After the death, a holder sells more PLEA than the PoolManager holds through a plain
+    /// swap-then-settle router: the trim's PLEA cannot be taken before the seller settles, so it is
+    /// kept as ERC-6909 claims and `rebalance` burns it; the sale fills (round 7, R7-A3-1; it reverted
+    /// with ERC20InsufficientBalance before).
+    function test_aSaleLargerThanThePoolsPleaFillsAndItsTrimBurnsAtTheRebalance() public {
+        buy(alice, 20_000e18);
+        skip(20 days);
+        buy(bob, 1e18); // the cap catches up with the market's holdings
+        assertFalse(plea.restricted(), "the Cabal should be dead");
+        uint256 bal = plea.balanceOf(alice);
+        assertGt(bal, plea.balanceOf(address(pm)), "the sale exceeds the PoolManager's PLEA");
+        uint256 supply = plea.totalSupply() + hook.totalBurned();
+        vm.startPrank(alice);
+        plea.approve(address(router), type(uint256).max);
+        uint256 out = router.sellExactIn(bal, abi.encode(alice));
+        vm.stopPrank();
+        assertGt(out, 0, "the sale filled");
+        assertEq(plea.balanceOf(alice), 0);
+        uint256 owed = hook.pleaClaims();
+        assertGt(owed, 0, "the trim waits as PLEA claims");
+        assertEq(pm.balanceOf(address(hook), uint256(uint160(address(plea)))), owed);
+        assertEq(hook.pendingTrim(), 0, "the market sits at the cap");
+        assertTrue(hook.pendingRebalance());
+        uint256 burned = hook.totalBurned();
+        hook.rebalance();
+        assertEq(hook.pleaClaims(), 0);
+        assertEq(pm.balanceOf(address(hook), uint256(uint160(address(plea)))), 0);
+        assertEq(hook.totalBurned(), burned + owed, "rebalance burned the trim");
+        assertEq(plea.totalSupply() + hook.totalBurned(), supply, "supply conserved");
+    }
+
+    /// A price-limited exact-input buy pays its payouts before its unearned fee is refunded, so no
+    /// size between the refund paid in tokens and the refund paid as claims reverts (round 7,
+    /// R7-A3-2: carol's 1,180-1,260 IMD buys reverted with ERC20InsufficientBalance before).
+    function test_aPartlyFilledBuyFillsToItsLimitAtEverySize() public {
+        buy(alice, 20e18);
+        uint256 snap = vm.snapshotState();
+        buy(bob, 100e18);
+        uint160 limit = hook.currentSqrtPriceX96();
+        vm.revertToState(snap);
+        uint256 filled;
+        for (uint256 g = 1000; g <= 1400; g += 10) {
+            uint256 s = vm.snapshotState();
+            vm.prank(carol);
+            uint256 got = router.buyExactInLimit(g * 1e18, abi.encode(carol), limit);
+            assertEq(hook.currentSqrtPriceX96(), limit, "filled to the limit");
+            if (filled == 0) filled = got;
+            assertEq(got, filled, "every size fills the same PLEA");
+            vm.revertToState(s);
+        }
+    }
 }
 
 contract HookRevisionPleaIsZeroTest is PleaIsZeroFixture, HookRevisionTest {

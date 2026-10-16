@@ -117,8 +117,10 @@ contract Letterbox is ReentrancyGuardTransient {
     /// (Seasons). Only the site's auto-sell box pays it; a letter (BY_LETTER) does not. Nothing is
     /// taken when no sale happens.
     uint256 internal constant AUTO_SELL_FEE = 0.35e18;
-    /// @dev A plea must be worth at least this at the snapshot (letters too), so the fee never
-    /// exceeds half a sale and a letter's fees stay small next to it.
+    /// @dev A plea must be worth at least this at the snapshot (letters too), so the auto-sell fee
+    /// stays near half a sale at most (a sale pays at least 93.1% of the snapshot value after the
+    /// hook's 2% and the 5% room, so at the floor the fee is about 51% of a sale, 54% at worst) and a
+    /// letter's fees stay small next to it.
     uint256 internal constant MIN_SALE_VALUE = 0.7e18;
     /// @dev CabalGate's text limit, repeated so an over-long letter is refused with a clear error.
     uint256 internal constant MAX_PLEA_BYTES = 280;
@@ -354,7 +356,8 @@ contract Letterbox is ReentrancyGuardTransient {
         // 10% slack when that is more (the appeal itself may be clamped under the fee's worth by the
         // first fee sale, and the original amount is PLEA at the letter's price): whoever could plead
         // by letter (a plea worth at least 0.70 IMD) can appeal by letter unless the hourly snapshot
-        // fell by more than about a tenth since the letter.
+        // fell since the letter by more than about 14% (at the 0.70 IMD floor with the oracle fee
+        // minted, Sepolia) or about a third (the fees bought in IMD), with letters pleading 20%.
         if (maxFeePlea * BPS > bal * MAX_FEE_SHARE_BPS && maxFeePlea * BPS > originalAmount * FEE_CAP_BPS) {
             revert FeeTooHigh(maxFeePlea, bal);
         }

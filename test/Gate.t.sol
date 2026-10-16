@@ -275,6 +275,41 @@ contract GateTest is Fixture {
         plead(alice, small(alice), unicode"Arabic سلام and ✓ are fine");
     }
 
+    /// Every Unicode format (Cf) character is refused, also those round 7 found missing (R7-A1-2):
+    /// the Arabic and Syriac number signs and marks, the deprecated format controls U+206A-206F, the
+    /// interlinear annotation characters and the format controls outside the BMP. Their visible
+    /// neighbours stay ordinary text.
+    function test_everyFormatCharacterIsRefused() public {
+        bytes[17] memory bad = [
+            bytes(hex"d880"), // U+0600 Arabic number sign
+            hex"d885", // U+0605 Arabic number mark above
+            hex"db9d", // U+06DD Arabic end of ayah
+            hex"dc8f", // U+070F Syriac abbreviation mark
+            hex"e0a290", // U+0890 Arabic pound mark above
+            hex"e0a291", // U+0891 Arabic piastre mark above
+            hex"e0a3a2", // U+08E2 Arabic disputed end of ayah
+            hex"e281aa", // U+206A inhibit symmetric swapping
+            hex"e281af", // U+206F nominal digit shapes
+            hex"efbfb9", // U+FFF9 interlinear annotation anchor
+            hex"efbfbb", // U+FFFB interlinear annotation terminator
+            hex"f09182bd", // U+110BD Kaithi number sign
+            hex"f091838d", // U+110CD Kaithi number sign above
+            hex"f09390b0", // U+13430 Egyptian hieroglyph vertical joiner
+            hex"f09390bf", // U+1343F Egyptian hieroglyph end walled enclosure
+            hex"f09bb2a3", // U+1BCA3 shorthand format up step
+            hex"f09d85ba" // U+1D17A musical symbol end phrase
+        ];
+        for (uint256 i; i < bad.length; ++i) {
+            uint256 amount = small(alice);
+            vm.prank(alice);
+            vm.expectRevert(CabalGate.BadPleaText.selector);
+            gate.submitSell(amount, string(bytes.concat("sell ", bad[i], " hidden")));
+        }
+        // U+0606 Arabic-Indic cube root, U+FFFC object replacement, U+1BC9F Duployan full stop,
+        // U+1D17B musical symbol combining accent
+        plead(alice, small(alice), string(hex"7365c3a96c6c20d886efbfbcf09bb29ff09d85bb"));
+    }
+
     function test_callbackFitsTheStipend() public {
         uint256 id = plead(alice, plea.balanceOf(alice) / 10);
         assertTrue(answer(id, 40));

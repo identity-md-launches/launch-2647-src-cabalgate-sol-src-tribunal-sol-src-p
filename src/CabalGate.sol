@@ -264,32 +264,38 @@ contract CabalGate is OracleAttestationConsumer {
         score = shareBps <= 2_000 ? 16 : shareBps <= 3_500 ? 9 : 3;
         IPleaHook h = hook();
         (uint256 spent, uint256 heldPlea, uint256 avgBuyTime) = h.basisOf(seller);
-        // A buy record that covers the plea scores its own holding time and profit. PLEA it does not
-        // cover (the distributor's claims, season prizes, an exempt transfer) never inherits the
-        // history of a dust buy: it counts as held since trading opened, at the profit table's middle.
-        bool covered = heldPlea >= amount;
-        uint256 since = covered ? avgBuyTime : startedAt;
-        if (since != 0 && since <= block.timestamp) {
-            uint256 held = block.timestamp - since;
-            score += held >= 7 days ? 7 : held >= 3 days ? 4 : held >= 1 days ? 2 : 0;
-        }
         uint256 latest = h.latestPrice();
-        if (!covered) {
-            score += 10;
-        } else if (spent != 0) {
+        // The PLEA a buy record covers scores the record's own holding time and profit. PLEA it does
+        // not cover (the distributor's claims, season prizes, an exempt transfer) never inherits the
+        // history of a dust buy: it counts as held since trading opened, at the profit table's middle.
+        // A plea larger than the record takes the PLEA-weighted mean of the two, rounded down, so one
+        // wei over the record never rescores the whole plea (round 7, R7-A1-1).
+        uint256 facts = _heldPoints(avgBuyTime);
+        if (spent != 0) {
             uint256 value = FullMath.mulDiv(heldPlea, latest, FixedPoint96.Q96);
             if (value < spent) {
-                score += 13;
+                facts += 13;
             } else {
                 // Exact band edges, no rounded percentage (round 5, R5-A1-2): a 50.9% gain is over 50%.
                 uint256 g = value - spent;
-                score += g * 2 <= spent ? 12 : g <= spent * 2 ? 10 : g <= spent * 5 ? 8 : g <= spent * 10 ? 6 : 4;
+                facts += g * 2 <= spent ? 12 : g <= spent * 2 ? 10 : g <= spent * 5 ? 8 : g <= spent * 10 ? 6 : 4;
             }
         }
+        if (heldPlea < amount) {
+            facts = (heldPlea * facts + (amount - heldPlea) * (_heldPoints(startedAt) + 10)) / amount;
+        }
+        score += uint8(facts);
         uint256 ago = h.price24hAgo();
         if (ago == 0) score += 5;
         else if (latest > ago * 102 / 100) score += 9;
         else if (latest * 100 >= ago * 98) score += 5;
+    }
+
+    /// @dev Holding-time points for PLEA held since `since` (zero: no record).
+    function _heldPoints(uint256 since) internal view returns (uint256) {
+        if (since == 0 || since > block.timestamp) return 0;
+        uint256 held = block.timestamp - since;
+        return held >= 7 days ? 7 : held >= 3 days ? 4 : held >= 1 days ? 2 : 0;
     }
 
     // ================================================================ plead
@@ -809,8 +815,10 @@ contract CabalGate is OracleAttestationConsumer {
         }
     }
 
-    /// @dev 1-280 bytes of well-formed UTF-8 with no control, zero-width, Bidi_Control, tag or
-    /// variation-selector characters, and no [PLEA, [/PLEA, [OBJECTION or [/OBJECTION marker.
+    /// @dev 1-280 bytes of well-formed UTF-8 with no control, format (Unicode Cf: zero-width,
+    /// Bidi_Control, tags, the Arabic and Syriac number signs, annotation and shorthand controls),
+    /// separator or variation-selector characters, and no [PLEA, [/PLEA, [OBJECTION or [/OBJECTION
+    /// marker.
     function _validateText(string calldata text) internal pure {
         bytes calldata b = bytes(text);
         uint256 n = b.length;
@@ -833,37 +841,37 @@ contract CabalGate is OracleAttestationConsumer {
                 else if (c >= 0xf0 && c <= 0xf4) len = 4;
                 else revert BadPleaText();
                 if (i + len > n) revert BadPleaText();
+                // Decode the code point; every continuation byte must be 10xxxxxx.
+                uint256 cp = c & (0x7f >> len);
                 for (uint256 k = 1; k < len; ++k) {
-                    if (_at(b, i + k) & 0xc0 != 0x80) revert BadPleaText();
+                    uint256 cb = _at(b, i + k);
+                    if (cb & 0xc0 != 0x80) revert BadPleaText();
+                    cp = (cp << 6) | (cb & 0x3f);
                 }
-                uint8 c1 = _at(b, i + 1);
-                // Unicode Table 3-7: overlongs, surrogates, above U+10FFFF
+                // Unicode Table 3-7 (overlongs, surrogates, above U+10FFFF), then the refused characters
                 if (
-                    (c == 0xe0 && c1 < 0xa0) || (c == 0xed && c1 > 0x9f) || (c == 0xf0 && c1 < 0x90)
-                        || (c == 0xf4 && c1 > 0x8f)
+                    (len == 3 && cp < 0x800) || (len == 4 && cp < 0x10000) || (cp >> 11 == 0x1b) || cp > 0x10ffff
+                        || _refused(cp)
                 ) revert BadPleaText();
-                if (len == 2) {
-                    // C1 controls U+0080-009F, soft hyphen U+00AD, Arabic letter mark U+061C
-                    if ((c == 0xc2 && (c1 <= 0x9f || c1 == 0xad)) || (c == 0xd8 && c1 == 0x9c)) revert BadPleaText();
-                } else if (len == 3) {
-                    uint8 c2 = _at(b, i + 2);
-                    // U+200B-200F zero-width and LRM/RLM, U+2028/2029, U+202A-202E bidi embeddings
-                    if (c == 0xe2 && c1 == 0x80 && ((c2 >= 0x8b && c2 <= 0x8f) || (c2 >= 0xa8 && c2 <= 0xae))) {
-                        revert BadPleaText();
-                    }
-                    // U+2060-2064 invisible operators, U+2066-2069 bidi isolates
-                    if (c == 0xe2 && c1 == 0x81 && ((c2 >= 0xa0 && c2 <= 0xa4) || (c2 >= 0xa6 && c2 <= 0xa9))) {
-                        revert BadPleaText();
-                    }
-                    if (c == 0xef && c1 == 0xbb && c2 == 0xbf) revert BadPleaText(); // U+FEFF
-                    if (c == 0xef && c1 == 0xb8 && c2 <= 0x8f) revert BadPleaText(); // U+FE00-FE0F selectors
-                    if (c == 0xe1 && c1 == 0xa0 && c2 == 0x8e) revert BadPleaText(); // U+180E
-                } else {
-                    // U+E0000-E01EF: tags (E0000-E007F) and variation selectors supplement (E0100-E01EF)
-                    if (c == 0xf3 && c1 == 0xa0) revert BadPleaText();
-                }
                 i += len;
             }
+        }
+    }
+
+    /// @dev The characters a text may not hold beyond ASCII: the C1 controls U+0080-009F, the soft
+    /// hyphen, every format (Cf) character of Unicode 15.1 (Arabic and Syriac number signs and marks,
+    /// U+061C, U+180E, U+200B-200F zero-width and LRM/RLM, U+202A-202E bidi embeddings, U+2060-2064
+    /// invisible operators, U+2066-206F bidi isolates and deprecated controls, U+FEFF, U+FFF9-FFFB
+    /// interlinear annotation, the Kaithi, Egyptian hieroglyph, shorthand and musical format
+    /// controls, the tags), the line and paragraph separators U+2028/2029, the variation selectors
+    /// U+FE00-FE0F and U+E0100-E01EF (the whole U+E0000-E0FFF range is refused).
+    function _refused(uint256 cp) internal pure returns (bool) {
+        unchecked {
+            return cp <= 0x9f || cp == 0xad || cp - 0x600 <= 5 || cp == 0x61c || cp == 0x6dd || cp == 0x70f
+                || cp - 0x890 <= 1 || cp == 0x8e2 || cp == 0x180e || cp - 0x200b <= 4 || cp - 0x2028 <= 6
+                || cp - 0x2060 <= 4 || cp - 0x2066 <= 9 || cp - 0xfe00 <= 15 || cp == 0xfeff || cp - 0xfff9 <= 2
+                || cp == 0x110bd || cp == 0x110cd || cp - 0x13430 <= 15 || cp - 0x1bca0 <= 3 || cp - 0x1d173 <= 7
+                || cp >> 12 == 0xe0;
         }
     }
 
