@@ -64,8 +64,8 @@ contract AuditRound1Test is Fixture {
         assertEq(pm.balanceOf(alice, _imdId()), 0, "no claims for the next buy");
     }
 
-    /// R1-A3-2: an exact-output sell (the Letterbox's fee sale) pays the same 1.75% of the fill as an
-    /// exact-input trade: the pool share is 0.25% of the fill, a third of the owner's 0.75%.
+    /// R1-A3-2: an exact-output sell (the Letterbox's fee sale) pays the same 2% of the fill as an
+    /// exact-input trade: the pool share is 0.25% of the fill, a quarter of the owner's 1%.
     function test_exactOutputFeeSaleSplitsTheFeeOnTheFill() public {
         buy(alice, 50e18);
         skip(1 days);
@@ -80,7 +80,7 @@ contract AuditRound1Test is Fixture {
         uint256 pool = hook.totalPoolFees() - pool0;
         uint256 prize = hook.totalPrize() - prize0;
         assertGt(owner, 0);
-        assertApproxEqRel(pool * 3, owner, 0.002e18, "the pool share is not a third of the owner's");
+        assertApproxEqRel(pool * 4, owner, 0.002e18, "the pool share is not a quarter of the owner's");
         assertApproxEqRel(prize, pool, 0.002e18, "the prize share is not the pool share");
     }
 
@@ -140,7 +140,7 @@ contract AuditRound1Test is Fixture {
         uint256 ownerBefore = imd.balanceOf(OWNER);
         uint256 potBefore = imd.balanceOf(address(seasons));
         buy(bob, 1_000e18);
-        assertGt(imd.balanceOf(OWNER) - ownerBefore, 7e18, "the owner's 0.75%");
+        assertGt(imd.balanceOf(OWNER) - ownerBefore, 9.5e18, "the owner's 1%");
         assertGt(imd.balanceOf(address(seasons)) - potBefore, 2e18, "the pot's 0.25%");
         assertGt(simd.byProject(bob, address(hook)), 4e18, "the cashback");
     }
@@ -366,7 +366,7 @@ contract AuditRound1Test is Fixture {
         uint256 ownerBefore = imd.balanceOf(OWNER) + pm.balanceOf(OWNER, _imdId());
         uint256 potBefore = imd.balanceOf(address(seasons)) + pm.balanceOf(address(seasons), _imdId());
         buy(bob, 200e18);
-        assertGt(imd.balanceOf(OWNER) + pm.balanceOf(OWNER, _imdId()) - ownerBefore, 1.4e18, "the owner's 0.75%");
+        assertGt(imd.balanceOf(OWNER) + pm.balanceOf(OWNER, _imdId()) - ownerBefore, 1.9e18, "the owner's 1%");
         assertGt(
             imd.balanceOf(address(seasons)) + pm.balanceOf(address(seasons), _imdId()) - potBefore, 0.45e18, "the pot's 0.25%"
         );
@@ -427,7 +427,7 @@ contract AuditRound1Test is Fixture {
         }
     }
 
-    /// R7-M-1: the delivery floor is 95% of the snapshot value after the hook's 2% sale fees, so an
+    /// R7-M-1: the delivery floor is 95% of the snapshot value after the hook's 2.25% sale fees, so an
     /// approved letter still sells when spot sits 4% under the hour's snapshot (the old gross floor
     /// refused anything past ~2.8%), and is still refused at 6%.
     function test_aLetterStillSellsAfterAFourPercentDip() public {
@@ -444,6 +444,42 @@ contract AuditRound1Test is Fixture {
         vm.mockCall(address(hook), abi.encodeWithSelector(PleaHook.latestPrice.selector), abi.encode(p * 104 / 100));
         uint256 out = letterbox.deliver(id);
         assertGt(out, 0, "sold");
+    }
+
+    /// The owner's 1% (2.25% in all): the delivery floor is 95% of the snapshot value after the hook's
+    /// sale fees, 0.25% of the PLEA burned and 2% of the IMD out (`HOOK_SALE_FEE_BPS` 225). A snapshot
+    /// that puts the floor a basis point above the real sale refuses it; a basis point below, it sells
+    /// (counting only the old 2.0%, the floor would sit about 0.26% higher and refuse both).
+    function test_theDeliveryFloorCountsTheHooksTwoAndAQuarterPercent() public {
+        buy(alice, 50e18);
+        skip(2 hours);
+        uint256 id = _letter(alice, "Twenty percent for the phone bill; the rest stays with me.");
+        assertTrue(answer(id, 45), "verdict");
+        (,, uint256 amount,) = letterbox.escrowOf(id);
+        uint256 snap = vm.snapshotState();
+        // The real sale, with the floor out of the way (a 1-wei snapshot price).
+        vm.mockCall(address(hook), abi.encodeWithSelector(PleaHook.latestPrice.selector), abi.encode(uint256(1)));
+        uint256 out = letterbox.deliver(id);
+        vm.revertToState(snap);
+        vm.mockCall(
+            address(hook),
+            abi.encodeWithSelector(PleaHook.latestPrice.selector),
+            abi.encode(_priceForFloor(amount, out * 10_001 / 10_000))
+        );
+        vm.expectRevert();
+        letterbox.deliver(id);
+        vm.revertToState(snap);
+        vm.mockCall(
+            address(hook),
+            abi.encodeWithSelector(PleaHook.latestPrice.selector),
+            abi.encode(_priceForFloor(amount, out * 9_999 / 10_000))
+        );
+        assertEq(letterbox.deliver(id), out, "sold, for the same IMD");
+    }
+
+    /// @dev The snapshot price whose delivery floor is `target`: amount x price x 95% x 97.75%.
+    function _priceForFloor(uint256 amount, uint256 target) internal pure returns (uint256) {
+        return target * 10_000 / 9_775 * 10_000 / 9_500 * (1 << 96) / amount;
     }
 
     /// R7-T-1: a seller who becomes excluded (accepts PLEA's ownership) while an objection to their

@@ -92,9 +92,9 @@ contract AuditRevisionTest is Fixture {
         uint256 cashbackBefore = simd.balanceOf(alice) + paid(alice);
         uint256 poolBefore = hook.retainClaims();
         uint256 amt = 5000e18;
-        uint256 fill = amt - amt * 175 / 10175;
+        uint256 fill = amt - amt * 200 / 10200;
         buy(alice, amt);
-        assertEq(paid(OWNER) - ownerBefore, fill * 75 / 10000, "owner fee lost");
+        assertEq(paid(OWNER) - ownerBefore, fill * 100 / 10000, "owner fee lost");
         assertEq(paid(address(seasons)) - prizeBefore, fill * 25 / 10000, "season fee lost");
         assertEq(simd.balanceOf(alice) + paid(alice) + amt - cashbackBefore, fill * 50 / 10000, "cashback lost");
         assertApproxEqAbs(hook.retainClaims() - poolBefore, fill * 25 / 10000, 2);

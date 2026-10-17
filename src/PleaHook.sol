@@ -8,7 +8,7 @@ pragma solidity 0.8.26;
   trims burn 100% and recovered IMD becomes an IMD-only buy wall below the price.
 
   Every fee is allocated in the swap that earns it: 0.5% cashback to the
-  trader as sIMD through imd/acc's Stacker, 0.75% to the owner, 0.25% to the season's prize pot
+  trader as sIMD through imd/acc's Stacker, 1% to the owner, 0.25% to the season's prize pot
   (to pool liquidity once the Cabal is dead), 0.25% to pool liquidity, and 0.25% of the PLEA leg
   burned.
 */
@@ -72,7 +72,7 @@ contract PleaHook {
 
     uint256 public constant BPS = 10_000;
     uint256 public constant CASHBACK_BPS = 50; // 0.5% of the IMD fill, to the trader as sIMD
-    uint256 public constant OWNER_BPS = 75; // 0.75% to the owner
+    uint256 public constant OWNER_BPS = 100; // 1% to the owner
     uint256 public constant PRIZE_BPS = 25; // 0.25% to the season's prize pot
     uint256 public constant POOL_BPS = 25; // 0.25% to pool liquidity (the wall)
     uint256 public constant IMD_FEE_BPS = CASHBACK_BPS + OWNER_BPS + PRIZE_BPS + POOL_BPS;
@@ -81,7 +81,7 @@ contract PleaHook {
     uint256 public constant LAUNCH_EXTRA_BPS = 7_000; // 70% -> 0% linear, to pool liquidity
     uint256 public constant LAUNCH_MAX_BUY = 5_000_000e18;
     /// @dev Below this much IMD in the PoolManager a buy's unfunded payouts join liquidity (2 IMD covers
-    /// the 1.5% payouts of the largest buy the launch window allows).
+    /// the 1.75% payouts of the largest buy the launch window allows).
     uint256 public constant PAYOUT_RESERVE = 2e18;
     /// @notice The seed's market cap: 14,000 IMD on mainnet (5,700 on the Sepolia runs).
     uint256 public constant MARKET_CAP_IMD = 14_000e18;

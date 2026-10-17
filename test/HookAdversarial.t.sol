@@ -154,7 +154,7 @@ contract HookAdversarialTest is SepoliaFixture {
         assertEq(held, plea.balanceOf(alice));
         // Remove the fee from the observed gross cost, allowing one wei for integer inversion.
         uint256 fill = spent * 10000 / (10000 + rate);
-        assertApproxEqAbs(imd.balanceOf(OWNER) - ownerBefore, fill * 75 / 10000, 1);
+        assertApproxEqAbs(imd.balanceOf(OWNER) - ownerBefore, fill * 100 / 10000, 1);
         assertApproxEqAbs(imd.balanceOf(address(seasons)) - prizeBefore, fill * 25 / 10000, 1);
         assertApproxEqAbs(hook.totalCashback() - cashbackBefore, fill * 50 / 10000, 1);
     }

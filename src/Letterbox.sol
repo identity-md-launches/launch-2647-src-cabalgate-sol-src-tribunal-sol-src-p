@@ -59,7 +59,7 @@ interface IMintable {
 /// Fees are paid in PLEA in the letter's own transaction: the gate sells just enough of the writer's
 /// PLEA (at most the hourly snapshot value + 10%) for the oracle fee, a 0.25 IMD runner tip and, for
 /// an appeal, the wall share. The plea's PLEA waits here in escrow. An approved plea is sold by
-/// anyone through `deliver` (for at least 95% of its snapshot value after the hook's 2% sale fees),
+/// anyone through `deliver` (for at least 95% of its snapshot value after the hook's 2.25% sale fees),
 /// who earns the tip, and the
 /// whole sale goes to the writer: a letter pays no auto-sell fee (0.5 IMD oracle fee + 0.25 IMD
 /// tip, and the tip comes back to a writer who sends `SELL`).
@@ -118,8 +118,8 @@ contract Letterbox is ReentrancyGuardTransient {
     /// taken when no sale happens.
     uint256 internal constant AUTO_SELL_FEE = 0.35e18;
     /// @dev A plea must be worth at least this at the snapshot (letters too), so the auto-sell fee
-    /// stays near half a sale at most (a sale pays at least 93.1% of the snapshot value after the
-    /// hook's 2% and the 5% room, so at the floor the fee is about 51% of a sale, 54% at worst) and a
+    /// stays near half a sale at most (a sale pays at least 92.9% of the snapshot value after the
+    /// hook's 2.25% and the 5% room, so at the floor the fee is about 51% of a sale, 54% at worst) and a
     /// letter's fees stay small next to it.
     uint256 internal constant MIN_SALE_VALUE = 0.7e18;
     /// @dev CabalGate's text limit, repeated so an over-long letter is refused with a clear error.
@@ -127,9 +127,9 @@ contract Letterbox is ReentrancyGuardTransient {
     /// @dev Auto-sell minimum: 95% of the PLEA's value at the hook's hourly snapshot, after the hook's
     /// sale fees (`HOOK_SALE_FEE_BPS`), so the 5% is the room for a price dip and the sale's impact.
     uint256 internal constant MIN_OUT_BPS = 9_500;
-    /// @dev The hook's fees on a sale: 0.25% of the PLEA burned and 1.75% of the IMD out (PleaHook
+    /// @dev The hook's fees on a sale: 0.25% of the PLEA burned and 2% of the IMD out (PleaHook
     /// `PLEA_BURN_BPS` + `IMD_FEE_BPS`), which the gate's net output already excludes (round 7, R7-M-1).
-    uint256 internal constant HOOK_SALE_FEE_BPS = 200;
+    uint256 internal constant HOOK_SALE_FEE_BPS = 225;
     /// @dev The fee swap may spend at most the snapshot value of the IMD it buys, plus 10%.
     uint256 internal constant FEE_CAP_BPS = 11_000;
     /// @dev The fees may take at most 10% of the writer's PLEA.
@@ -273,7 +273,7 @@ contract Letterbox is ReentrancyGuardTransient {
     // ================================================================ runners
 
     /// @notice Anyone sells an approved plea inside its 7-minute window, for at least 95% of its
-    /// snapshot value after the hook's 2% sale fees: the sale goes to the writer (less the 0.35 IMD auto-sell fee to the season's
+    /// snapshot value after the hook's 2.25% sale fees: the sale goes to the writer (less the 0.35 IMD auto-sell fee to the season's
     /// prize pot when the plea came from the site's auto-sell box, never from a letter), the points
     /// are recorded, and the caller earns the 0.25 IMD tip.
     /// @return out The IMD paid to the writer.
@@ -425,7 +425,7 @@ contract Letterbox is ReentrancyGuardTransient {
         emit Delivered(id, runner, out, TIP, fee);
     }
 
-    /// @dev A plea must be worth at least 0.70 IMD at the snapshot (the sale pays at least 93.1% of
+    /// @dev A plea must be worth at least 0.70 IMD at the snapshot (the sale pays at least 92.9% of
     /// that), so the auto-sell fee can never eat a sale; letters keep the same floor.
     function _requireWorthTheFee(uint256 amount) internal view {
         uint256 value = FullMath.mulDiv(amount, _price(), FixedPoint96.Q96);

@@ -415,7 +415,7 @@ contract Seasons {
         }
     }
 
-    /// @dev The owner of PLEA and the launch owner the hook pays its 0.75% to: neither ever earns
+    /// @dev The owner of PLEA and the launch owner the hook pays its 1% to: neither ever earns
     /// points, prizes or the bonus, so a handover inside the team cannot bring a prize back to it.
     /// A wallet merely nominated (two-step transfer) is not excluded: that would let the owner strip
     /// a leader by nominating them, the run-3 finding Ownable2Step closed.

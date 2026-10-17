@@ -564,7 +564,7 @@ contract ForkTestnetTest is Test {
         console2.log("sell: PLEA in", amount);
         console2.log("sell: IMD at spot", spot);
         console2.log("sell: IMD out", out);
-        assertLt(out, spot * 9800 / 10_000, "fees (2.0%) were charged");
+        assertLt(out, spot * 9775 / 10_000, "fees (2.25%) were charged");
         assertGt(out, spot * 95 / 100, "fees plus impact stay small for a 5% sale");
         assertEq(uint8(_status(id)), uint8(CabalGate.Status.Executed));
         assertEq(plea.balanceOf(address(gate)), 0);

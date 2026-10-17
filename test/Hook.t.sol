@@ -11,6 +11,18 @@ import {StateLibrary} from "v4-core/libraries/StateLibrary.sol";
 contract HookTest is Fixture {
     using StateLibrary for IPoolManager;
 
+    /// The agreed fee (the owner's 1%, 2026-10-17): 2.25% in all. On the IMD leg 0.5% cashback, 1% to
+    /// the owner, 0.25% to the prize pot and 0.25% to the wall; 0.25% of the PLEA leg burned.
+    function test_theTradeFeeIsTwoAndAQuarterPercentWithAOnePercentOwnerShare() public view {
+        assertEq(hook.CASHBACK_BPS(), 50, "cashback 0.5%");
+        assertEq(hook.OWNER_BPS(), 100, "owner 1%");
+        assertEq(hook.PRIZE_BPS(), 25, "prize pot 0.25%");
+        assertEq(hook.POOL_BPS(), 25, "wall 0.25%");
+        assertEq(hook.IMD_FEE_BPS(), 200, "2% on the IMD leg");
+        assertEq(hook.PLEA_BURN_BPS(), 25, "0.25% of the PLEA burned");
+        assertEq(hook.IMD_FEE_BPS() + hook.PLEA_BURN_BPS(), 225, "2.25% in all");
+    }
+
     function test_everyFeeIsPaidInTheSameSwap() public {
         buy(bob, 50e18); // IMD in the pool
         uint256 ownerBefore = imd.balanceOf(OWNER);
@@ -18,10 +30,10 @@ contract HookTest is Fixture {
         uint256 claimsBefore = hook.retainClaims();
         uint256 supplyBefore = plea.totalSupply();
         uint256 amt = 100e18;
-        uint256 fill = amt - amt * 175 / 10_175;
+        uint256 fill = amt - amt * 200 / 10_200;
         buy(alice, 100e18);
         uint256 cashback = fill * 50 / 10_000;
-        assertApproxEqAbs(imd.balanceOf(OWNER) - ownerBefore, fill * 75 / 10_000, 1);
+        assertApproxEqAbs(imd.balanceOf(OWNER) - ownerBefore, fill * 100 / 10_000, 1);
         assertApproxEqAbs(imd.balanceOf(address(seasons)) - prizeBefore, fill * 25 / 10_000, 1);
         assertApproxEqAbs(hook.retainClaims() - claimsBefore, fill * 25 / 10_000, 2);
         assertApproxEqAbs(simd.byProject(alice, address(hook)), cashback, 1); // stacked as sIMD
@@ -62,7 +74,7 @@ contract HookTest is Fixture {
         buy(alice, 10e18);
         assertEq(simd.balanceOf(alice), 0);
         uint256 amt = 10e18;
-        uint256 fill = amt - amt * 175 / 10_175;
+        uint256 fill = amt - amt * 200 / 10_200;
         assertApproxEqAbs(imd.balanceOf(alice), before - 10e18 + fill * 50 / 10_000, 1);
     }
 

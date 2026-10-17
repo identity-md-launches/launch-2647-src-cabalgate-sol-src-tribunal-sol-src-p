@@ -104,8 +104,8 @@ contract TraderResolutionTest is Fixture {
         (, uint256 heldAfter,) = hook.basisOf(carol);
         assertEq(heldAfter, held, "no buy record touched");
         // After death the prize share joins the pool: pool = 0.25 + 0.25 + the skipped 0.5 = 1.0%,
-        // four thirds of the 0.75% owner share.
-        assertApproxEqAbs(hook.totalPoolFees() - pool0, (hook.totalOwnerFees() - owner0) * 100 / 75, 3);
+        // as much as the 1% owner share.
+        assertApproxEqAbs(hook.totalPoolFees() - pool0, hook.totalOwnerFees() - owner0, 3);
     }
 
     /// A 32-byte hookData word with dirty upper bits is not an address: the resolution falls through
@@ -161,8 +161,8 @@ contract TraderResolutionTest is Fixture {
         assertEq(simd.totalSupply(), shares);
         (, uint256 held,) = hook.basisOf(alice);
         assertEq(held, 0, "dirty address must not be truncated into a trader");
-        // pool = 0.25 + 0.25 + the skipped 0.5 = 1.0%, four thirds of the 0.75% owner share.
-        assertApproxEqAbs(hook.totalPoolFees() - poolFees, (hook.totalOwnerFees() - ownerFees) * 100 / 75, 3);
+        // pool = 0.25 + 0.25 + the skipped 0.5 = 1.0%, as much as the 1% owner share.
+        assertApproxEqAbs(hook.totalPoolFees() - poolFees, hook.totalOwnerFees() - ownerFees, 3);
     }
 
     function test_dirtyHookDataFallsBackToRouterCallerWhileAlive() public {

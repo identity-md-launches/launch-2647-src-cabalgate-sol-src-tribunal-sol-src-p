@@ -464,7 +464,7 @@ contract TradingInvariantTest is SepoliaFixture {
 
     function testFuzz_handlerAccountsForClaimFeesAndTheirRedemption(bool paused) public {
         // The PoolManager holds just over the 2 IMD opening reserve (R2-A3-1), and the next buy's
-        // 1.5% payouts (3 IMD) exceed it: they are paid as claims.
+        // 1.75% payouts (about 3.4 IMD) exceed it: they are paid as claims.
         handler.buy(0, 2.5e18);
         handler.pauseCashback(paused);
         handler.buy(1, 200e18); // its fees exceed the cash left by the first small buy
