@@ -296,8 +296,8 @@ The season length and the dead-man are constructor values so a testnet can run a
 - **IMD's own audit in every launch job:** an import audit, the adaptation, four specialists (math, flow, economics, permissions), a test writer, the manifest check and a judge.
 - **Every High was fixed, and every Medium but one.** The exception, R2-A3-2, is a gifted buy diluting a holder's hold time; it is accepted in writing and documented in the threat model. The Lows and Infos are fixed, documented or accepted.
 - Every finding with its status: [`audit/FINDINGS.md`](audit/FINDINGS.md). The spec and the agreed invariants: [`audit/THREAT-MODEL.md`](audit/THREAT-MODEL.md). The round reports: [`audit/rounds/`](audit/rounds/).
-- **847 tests:** unit, fuzz, invariant and adversarial suites, plus fork rehearsals against the live Sepolia contracts and Ethereum mainnet.
-- **An outside AI review is running:** [One Dollar Audit](https://www.onedollaraudit.com/), four jobs on run 8.5's code, submitted on 2026-10-17.
+- **852 tests:** unit, fuzz, invariant and adversarial suites, plus fork rehearsals against the live Sepolia contracts and Ethereum mainnet.
+- **An outside AI review:** [One Dollar Audit](https://www.onedollaraudit.com/), five jobs on run 8.5's code (2026-10-17). No Critical; the two claimed Highs and four claimed Mediums are not reachable on our launch (checked on chain and tested; one deploy-time wiring gap is covered by the manifest test); one Low accepted (ODA-1015-1); everything else documented or noted, with no code change (the `ODA-*` rows).
 
 ---
 
