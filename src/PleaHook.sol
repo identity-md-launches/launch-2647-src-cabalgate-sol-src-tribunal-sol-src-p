@@ -174,8 +174,8 @@ contract PleaHook {
     int24 private curBlockTick;
     uint64 private refBlock;
     int24 private constant MAX_REF_STEP = 200;
-    /// @notice How far the wall's placement guard may move toward a higher PLEA price per day (~4%).
-    uint256 public constant WALL_GUARD_TICKS_PER_DAY = 400;
+    /// @notice How far the wall's placement guard may move toward a higher PLEA price per day (~7.25%).
+    uint256 public constant WALL_GUARD_TICKS_PER_DAY = 700;
     /// @notice The wall's placement guard (POOL4's deployment floor, mirrored for an IMD bid). It moves
     /// at once to any lower PLEA price the pool trades at, and toward a higher one only at
     /// `WALL_GUARD_TICKS_PER_DAY`, toward `refTick`. The wall is never placed above it, so lifting the

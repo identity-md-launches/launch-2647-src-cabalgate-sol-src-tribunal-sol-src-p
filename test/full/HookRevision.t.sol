@@ -407,15 +407,16 @@ contract HookRevisionTest is Fixture {
             skip(10 minutes);
             buy(bob, 5e18);
             int24 g = hook.wallGuardTick();
-            // 10 minutes at 400 ticks a day: at most 2 ticks, toward the market, never away from it.
-            assertTrue(pz ? g >= g0 && g - g0 <= 3 : g <= g0 && g0 - g <= 3, "a buy after the drain moved the guard");
+            // 10 minutes at 700 ticks a day: at most 5 ticks (4.9 and the carried remainder), toward the
+            // market, never away from it.
+            assertTrue(pz ? g >= g0 && g - g0 <= 5 : g <= g0 && g0 - g <= 5, "a buy after the drain moved the guard");
             g0 = g;
         }
     }
 
-    /// @dev The guard's climb toward the market is paced: never more than 400 ticks per day, however
+    /// @dev The guard's climb toward the market is paced: never more than 700 ticks per day, however
     /// the idle time is split, and it never passes the reference tick.
-    function testFuzz_theGuardClimbsAtMost400TicksADay(uint256 pump, uint256 gapSeconds, uint8 steps) public {
+    function testFuzz_theGuardClimbsAtMost700TicksADay(uint256 pump, uint256 gapSeconds, uint8 steps) public {
         pump = bound(pump, 500e18, 3_000e18);
         gapSeconds = bound(gapSeconds, 1, 2 days);
         steps = uint8(bound(steps, 1, 6));
@@ -434,8 +435,8 @@ contract HookRevisionTest is Fixture {
             int256 climbed = _pleaPriceTick(hook.wallGuardTick()) - _pleaPriceTick(g0);
             assertGe(climbed, 0, "the guard fell without a lower trade");
             // Each update is capped at one day of idle time, so the bound is per update, not elapsed.
-            assertLe(uint256(climbed), 400 * (i + 1) * (gapSeconds > 1 days ? 1 days : gapSeconds) / 1 days + 1);
-            assertLe(uint256(climbed), 400 * elapsed / 1 days + 1, "the guard climbed faster than 400 ticks a day");
+            assertLe(uint256(climbed), 700 * (i + 1) * (gapSeconds > 1 days ? 1 days : gapSeconds) / 1 days + 1);
+            assertLe(uint256(climbed), 700 * elapsed / 1 days + 1, "the guard climbed faster than 700 ticks a day");
             assertLe(_pleaPriceTick(hook.wallGuardTick()), _pleaPriceTick(hook.refTick()) + 1, "passed refTick");
         }
     }

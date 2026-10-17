@@ -420,13 +420,13 @@ contract ForkTestnetTest is Test {
         int24 g1 = hook.wallGuardTick();
         int256 pumped = _up(spot0, hook.currentTick());
         int256 jump = _up(g0, g1);
-        assertGt(pumped, 400, "the price rose");
+        assertGt(pumped, 700, "the price rose");
         assertLe(jump, 1, "the guard did not follow the pump within the same minutes");
         _warp(_now() + 1 days);
         buy(w[2], 1e18);
         int24 g2 = hook.wallGuardTick();
         int256 rise = _up(g1, g2);
-        assertLe(rise, 401, "the guard rises at most ~4% a day");
+        assertLe(rise, 701, "the guard rises at most ~7% a day");
         assertGt(rise, 0, "the guard follows a held price slowly");
         console2.log("price rise in ticks", pumped);
         _warp(_now() + 10 days);

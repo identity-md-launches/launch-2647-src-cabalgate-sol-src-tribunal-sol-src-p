@@ -327,8 +327,8 @@ contract HookTest is Fixture {
         }
         int24 spot = hook.currentTick();
         int24 g1 = hook.wallGuardTick();
-        // The guard moved at most 400 ticks a day toward the higher PLEA price (8 minutes: ~2 ticks).
-        assertLe(_pleaPriceTick(g1) - _pleaPriceTick(g0), 3);
+        // The guard moved at most 700 ticks a day toward the higher PLEA price (8 minutes: ~4 ticks).
+        assertLe(_pleaPriceTick(g1) - _pleaPriceTick(g0), 4);
         assertGt(_pleaPriceTick(spot) - _pleaPriceTick(g1), 1_000);
         vm.prank(keeper);
         hook.rebalance();
@@ -338,9 +338,10 @@ contract HookTest is Fixture {
         else assertGe(lo, g1);
     }
 
-    function test_wallGuardDropsAtOnceAndRisesFourPercentADay() public {
+    function test_wallGuardDropsAtOnceAndRisesSevenPercentADay() public {
+        assertEq(hook.WALL_GUARD_TICKS_PER_DAY(), 700, "the agreed guard pace (~7.25% a day)");
         buy(alice, 3_000e18);
-        // Hold the price for weeks: the guard climbs ~400 ticks a day until it reaches the price.
+        // Hold the price for weeks: the guard climbs ~700 ticks a day until it reaches the price.
         for (uint256 i; i < 30; ++i) {
             skip(1 days);
             for (uint256 k; k < 3; ++k) {
@@ -358,14 +359,14 @@ contract HookTest is Fixture {
         int24 g1 = hook.wallGuardTick();
         assertEq(_pleaPriceTick(g1), _pleaPriceTick(hook.pleaIsZero() ? hook.currentTick() : hook.currentTick() + 1));
         assertLe(_pleaPriceTick(g1), _pleaPriceTick(g0));
-        // A day later, with the price held higher, the guard has risen by at most 400 ticks.
+        // A day later, with the price held higher, the guard has risen by at most 700 ticks.
         for (uint256 i; i < 3; ++i) {
             vm.roll(vm.getBlockNumber() + 1);
             skip(8 hours);
             buy(bob, 1_000e18);
         }
         int24 g2 = hook.wallGuardTick();
-        assertLe(_pleaPriceTick(g2) - _pleaPriceTick(g1), 401);
+        assertLe(_pleaPriceTick(g2) - _pleaPriceTick(g1), 701);
         assertGt(_pleaPriceTick(g2), _pleaPriceTick(g1));
     }
 }
