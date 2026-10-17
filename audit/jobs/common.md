@@ -4,7 +4,7 @@ READ FIRST, in this repository:
 - audit/THREAT-MODEL.md: actors and trust, the invariants with the agreed numbers (section 2), deliberate behaviour that is NOT a finding (section 3) and the severity scale (section 4). Use that scale.
 - audit/FINDINGS.md: findings already fixed or accepted. Do not re-report them unless the fix is wrong. Check that every fix marked fixed for this area is correct and complete and opens no new path (each names its regression test).
 - README.md (the design and every number), OBJECTIONS.md (Objection!: its Known limits and Decisions are accepted behaviour).
-- Build: forge build --skip test --skip script (under a minute), then forge test --match-path 'test/{A,B}.t.sol' a few files at a time (FOUNDRY_PROFILE=full for invariant, adversarial, fork); never one whole-tree build (over the 10-minute limit). CabalGate is 641 and PleaHook 212 bytes under EIP-170.
+- Build: forge build (src, script and the launch suites, ~1 GB), then FOUNDRY_PROFILE=full forge test --match-path 'test/full/{A,B}.t.sol' a few files at a time (the suite is in test/full, the forks in test/fork); never FOUNDRY_PROFILE=full forge build of the whole tree (several GB, over the 10-minute limit). CabalGate is 641 and PleaHook 212 bytes under EIP-170.
 
 FILES IN THIS AREA (read fully; follow calls into other files when needed):
 {{FILES}}

@@ -284,7 +284,7 @@ SEPOLIA_RPC_URL=https://ethereum-sepolia-rpc.publicnode.com forge test --match-p
 MAINNET_RPC_URL=https://ethereum-rpc.publicnode.com forge test --match-path test/fork/ForkMainnet.t.sol -vv
 ```
 
-`test/fork/ForkMainnet.t.sol` does the same on an Ethereum fork with chain-1 settings, against the real IMD, sIMD, PoolManager and Intake v2 (its price for a question is the gate's 0.5 IMD, and its 200k callback gas carries the verdict with room to spare): a letter buys the oracle fee and the tip with PLEA, a runner delivers it, a typed `letter(text)` is denied, appealed and refunded, and a site plea pays the fee in IMD. imd/acc's mainnet Stacker (launch #1409) is credited for real. `test/LetterboxInvariant.t.sol` runs random letters, appeals, verdicts, failures, deliveries, sales, settles and strangers' attempts in both the Sepolia and the mainnet fee modes, and checks that the Letterbox holds exactly its open escrows and tips, that every escrow ends once (sold only after an approval, otherwise refunded to its writer), and that no writer's PLEA moves except through their own letters.
+`test/fork/ForkMainnet.t.sol` does the same on an Ethereum fork with chain-1 settings, against the real IMD, sIMD, PoolManager and Intake v2 (its price for a question is the gate's 0.5 IMD, and its 200k callback gas carries the verdict with room to spare): a letter buys the oracle fee and the tip with PLEA, a runner delivers it, a typed `letter(text)` is denied, appealed and refunded, and a site plea pays the fee in IMD. imd/acc's mainnet Stacker (launch #1409) is credited for real. `test/full/LetterboxInvariant.t.sol` runs random letters, appeals, verdicts, failures, deliveries, sales, settles and strangers' attempts in both the Sepolia and the mainnet fee modes, and checks that the Letterbox holds exactly its open escrows and tips, that every escrow ends once (sold only after an approval, otherwise refunded to its writer), and that no writer's PLEA moves except through their own letters.
 
 The season length and the dead-man are constructor values so a testnet can run a fast clock. On Ethereum mainnet `PleaLaunch.seed` refuses anything below 15 days and 33 hours, and a hook built with an opening market cap under 14,000 IMD (`BelowAgreedMarketCap`: the cap is the hook's compile-time `MARKET_CAP_IMD`, 5,700 on the Sepolia code), checked when trading opens, on the live chain: launch rehearsals deploy the manifest on a bare EVM with chain id 1, where a constructor check refused the Sepolia settings.
 
@@ -306,14 +306,15 @@ The season length and the dead-man are constructor values so a testnet can run a
 Foundry 1.8.3:
 
 ```
-forge build --skip test --skip script                  # the sources alone, under a minute
-forge test                                             # the default profile: unit suites
-forge test --match-path test/LetterboxInvariant.t.sol  # one heavy suite at a time
+forge build                                            # src, script and the launch suites: ~1 GB, under 2 minutes
+forge test                                             # the default profile: the launch and manifest suites
+FOUNDRY_PROFILE=full forge test --match-path 'test/full/{Gate,Hook}.t.sol'   # the suite, a few files at a time
+FOUNDRY_PROFILE=full forge test --match-path test/full/LetterboxInvariant.t.sol   # one heavy suite at a time
 FOUNDRY_PROFILE=full forge test --match-path test/fork/ForkTestnet.t.sol   # with SEPOLIA_RPC_URL
 forge test --isolate --match-path test/Launch.t.sol    # each call as its own transaction
 ```
 
-The whole tree compiles under via-IR as one slow solc job (two contracts sit near the size limit), so the default profile keeps the fork rehearsals and the fuzz-heavy invariant and adversarial suites out of a bare `forge build` (`skip` in `foundry.toml`); `FOUNDRY_PROFILE=full` compiles everything with the same compiler settings. Build the sources first, then run the tests in groups with `--match-path`.
+The whole tree compiles under via-IR as one slow, memory-hungry solc job (two contracts sit near the size limit): compiled at once it needs several GB. So the default profile builds only `src`, `script` and the launch-manifest suites in `test/` (a clean bare `forge build` peaks at about 1 GB, inside a 1.5 GB build container), and the project's suite lives in `test/full/` and the fork rehearsals in `test/fork/`, both skipped by default; `FOUNDRY_PROFILE=full` compiles them with the same compiler settings, a few files at a time with `--match-path`. A new test file in `test/` is part of the default build.
 
 `foundry.toml` turns off forge's lint-on-build (`[lint] lint_on_build = false`). With it on, the linter runs out of memory on `PleaHook`.
 
@@ -329,7 +330,7 @@ The whole tree compiles under via-IR as one slow solc job (two contracts sit nea
 | Sale from the site / `deliver` of a letter (records the points) | 0.60M / 0.83M |
 | `record` | 0.21M |
 
-The mainnet gas pass (escaping only the plea texts in the oracle question, unchecked byte reads in the text rules, the hook's price views reading one checkpoint, a one-slot escrow) cut these by up to half without changing any behaviour; `test/GasPass.t.sol` holds each change to the code it replaced.
+The mainnet gas pass (escaping only the plea texts in the oracle question, unchecked byte reads in the text rules, the hook's price views reading one checkpoint, a one-slot escrow) cut these by up to half without changing any behaviour; `test/full/GasPass.t.sol` holds each change to the code it replaced.
 
 ---
 
