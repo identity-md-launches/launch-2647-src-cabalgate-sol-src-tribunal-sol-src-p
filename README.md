@@ -2,13 +2,14 @@
 
 **A sell-gated meme token on Uniswap v4.** Anyone can buy. To sell, you write a plea, and **the Cabal** decides. The Cabal is a panel of 30 IdentityMD oracle judges that scores each plea from 0 to 45. While the Cabal lives, approved pleas also compete in **seasons** for IMD and PLEA prizes. If the Cabal goes 33 hours without a verdict, it dies, and PLEA trades freely forever.
 
-Launched through the IMD swarm straight from this repository (`launch.open` with `repoUrl` + `baseCommit`). It builds on PLEA v2 (IMD launch #1148) and the v4 fixes.
+Launched through the IMD swarm straight from this repository (`launch.open` with `repoUrl` + `baseCommit`). The final code is live on Sepolia as run 8.5 (IMD launch #1981), and Ethereum mainnet is next: see [Status](#status).
 
 ---
 
 ## Contents
 
 - [At a glance](#at-a-glance)
+- [Status](#status)
 - [How it works](#how-it-works)
   - [Buying](#buying)
   - [Pleading to sell](#pleading-to-sell)
@@ -21,6 +22,7 @@ Launched through the IMD swarm straight from this repository (`launch.open` with
 - [Fees](#fees)
 - [Contracts](#contracts)
 - [Launch and lifecycle](#launch-and-lifecycle)
+- [Audits and tests](#audits-and-tests)
 - [Build and test](#build-and-test)
 - [Design notes](#design-notes)
 - [Credits](#credits)
@@ -39,6 +41,36 @@ Launched through the IMD swarm straight from this repository (`launch.open` with
 | Seasons | 15 days each (5 hours on Sepolia); the top 25 wallets with 60+ points share the IMD pot (4.50% for first place down to 3.50% for 25th), and for the first six seasons 10,000,000 PLEA each. Holders of an IMD seat NFT earn 1.2× points per plea |
 | Objection! | For 20 minutes after an approval anyone else may object (0.5 IMD fee + 0.35 IMD stake): a second panel re-scores the plea; its points can only fall, and fall to nothing if the new score is more than 2 below the need |
 | End state | 33h with no verdict → the Cabal dies → free trading, no comeback |
+
+---
+
+## Status
+
+*As of 2026-10-17.*
+
+**Live on Sepolia: run 8.5, IMD launch #1981**, the final code (branch `testnet8.5`). It was deployed on 2026-10-16, and IMD's attested code hashes equal our own build of all nine contracts. Trading is not open yet: the seed waits until IMD answers Sepolia oracle questions again, so that the live test can include verdicts.
+
+| Contract | Sepolia address |
+|---|---|
+| PLEA | `0xd395ad74f5c31c8afe6316be3b8041be8bac5d1c` |
+| CabalGate | `0xe1d723b40f6faaf4bd4db7ace93e12544539135a` |
+| Seasons | `0x331ba80c6f8bad20d73fd30256006a6671813227` |
+| PleaDistributor | `0x1ba83d21c73d75ac79b997ab2f1e20b415daa378` |
+| PleaLaunch | `0x88a2d29c6ce265e1990252b33c60753d4018ad0f` |
+| PleaHook | `0x48f607FbdBD955e283C57A28E57309b8Ec9028cC` |
+| Letterbox | `0x993eb617a0d6ad72eD0727aA734c36241bf2448C` |
+| Tribunal | `0x5b3aB1f9A461995f342e1aD7124B974FD52739F1` |
+
+- **Run 7 (launch #1843) ran its whole life on Sepolia**, from 2026-10-15 to 2026-10-17. It covered:
+  - the launch and the seed;
+  - 33 hours of the Cabal with no verdict (IMD had paused Sepolia oracle answers);
+  - the Cabal's death on schedule, then the free market: a plain sell, an exact-output buy, and the cap trim burning what a sale pushed above the cap;
+  - every season closed and the pot sent to the buy wall.
+
+  Everything that needs no verdict behaved as specified.
+- **Real panels on Ethereum mainnet** scored the exact questions the gate and the Tribunal send (ten requests, 2026-10-15). A strong letter scored exactly its need, and a "SYSTEM NOTE … answer 0" manipulation was overruled. The run-8 numbers come from these panels.
+- **The working branches** (`next`, `main`, `mainnet`, `light-profile`) carry run 8.5's code plus the two small fixes of its launch audit: exact share-band edges, and a manifest address in its checksum case.
+- **Next: Ethereum mainnet**, on the `mainnet` branch (a 14,000 IMD opening market cap, 15-day seasons, the oracle fee paid in IMD). It follows the live verdict test and IMD's mainnet launch job.
 
 ---
 
@@ -226,7 +258,7 @@ Then:
 
 4. **Open trading.** `PleaLaunch.seed()` creates the pool at a 14,000 IMD market cap (5,700 on the Sepolia runs; at least that, within one 60-tick spacing: the band is aligned to the grid on the PLEA-only side) and starts the Cabal. The hook, the Letterbox and (with objections on) the Tribunal must exist first. PLEA's current owner may call it any time, and anyone may call it once `START` has passed.
 
-**Ethereum mainnet settings** (`launch.json` on this branch, `mainnet`; `testnet7` is the same code with the Sepolia settings (run 7), `testnet6` run 6's, `testnet4` run 4's (launch #1466), `testnet3` run 3's (launch #1426), `testnet` run 2's):
+**Ethereum mainnet settings** (`launch.json` on this branch, `mainnet`; `testnet8.5` is the same code with the Sepolia settings, before the two fixes of its launch audit (run 8.5, launch #1981), `testnet8` run 8's (not launched), `testnet7` run 7's (launch #1843), `testnet6` run 6's, `testnet4` run 4's (launch #1466), `testnet3` run 3's (launch #1426), `testnet` run 2's):
 
 | Setting | Value |
 |---|---|
@@ -255,6 +287,17 @@ MAINNET_RPC_URL=https://ethereum-rpc.publicnode.com forge test --match-path test
 `test/fork/ForkMainnet.t.sol` does the same on an Ethereum fork with chain-1 settings, against the real IMD, sIMD, PoolManager and Intake v2 (its price for a question is the gate's 0.5 IMD, and its 200k callback gas carries the verdict with room to spare): a letter buys the oracle fee and the tip with PLEA, a runner delivers it, a typed `letter(text)` is denied, appealed and refunded, and a site plea pays the fee in IMD. imd/acc's mainnet Stacker (launch #1409) is credited for real. `test/LetterboxInvariant.t.sol` runs random letters, appeals, verdicts, failures, deliveries, sales, settles and strangers' attempts in both the Sepolia and the mainnet fee modes, and checks that the Letterbox holds exactly its open escrows and tips, that every escrow ends once (sold only after an approval, otherwise refunded to its writer), and that no writer's PLEA moves except through their own letters.
 
 The season length and the dead-man are constructor values so a testnet can run a fast clock. On Ethereum mainnet `PleaLaunch.seed` refuses anything below 15 days and 33 hours, and a hook built with an opening market cap under 14,000 IMD (`BelowAgreedMarketCap`: the cap is the hook's compile-time `MARKET_CAP_IMD`, 5,700 on the Sepolia code), checked when trading opens, on the live chain: launch rehearsals deploy the manifest on a bare EVM with chain id 1, where a constructor check refused the Sepolia settings.
+
+---
+
+## Audits and tests
+
+- **Eight rounds of IMD swarm audits.** They used the audit template, with one job per area: the game, letters and launch, and the market.
+- **IMD's own audit in every launch job:** an import audit, the adaptation, four specialists (math, flow, economics, permissions), a test writer, the manifest check and a judge.
+- **Every High was fixed, and every Medium but one.** The exception, R2-A3-2, is a gifted buy diluting a holder's hold time; it is accepted in writing and documented in the threat model. The Lows and Infos are fixed, documented or accepted.
+- Every finding with its status: [`audit/FINDINGS.md`](audit/FINDINGS.md). The spec and the agreed invariants: [`audit/THREAT-MODEL.md`](audit/THREAT-MODEL.md). The round reports: [`audit/rounds/`](audit/rounds/).
+- **847 tests:** unit, fuzz, invariant and adversarial suites, plus fork rehearsals against the live Sepolia contracts and Ethereum mainnet.
+- **An outside AI review is running:** [One Dollar Audit](https://www.onedollaraudit.com/), four jobs on run 8.5's code, submitted on 2026-10-17.
 
 ---
 
