@@ -3,7 +3,7 @@ pragma solidity 0.8.26;
 
 import {ArtifactDeployment} from "../utils/ArtifactDeployment.sol";
 
-import {Test, console2} from "forge-std/Test.sol";
+import {Test, Vm, console2} from "forge-std/Test.sol";
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import {PLEA} from "../../src/PLEA.sol";
 import {CabalGate} from "../../src/CabalGate.sol";
@@ -31,10 +31,6 @@ interface IPoolSwapTest {
         returns (int256);
 }
 
-interface IMintable {
-    function mint(address to, uint256 amount) external;
-}
-
 /// @dev The live Intake v2 on Sepolia: the writer's `complete` (selector 0x0f6261af, read from a
 /// live failure delivery) and the request getter.
 interface IIntakeV2 {
@@ -45,30 +41,36 @@ interface IIntakeV2 {
         external
         view
         returns (address payer, address callbackTarget, bytes4 callbackSelector, bool completed);
+
+    /// @dev IMD's treasury: the Intake forwards every payment there in the same call.
+    function payTo() external view returns (address);
 }
 
-/// Testnet run 3 rehearsal on a Sepolia fork: deploys the seven launch contracts with the values in
+/// Testnet run 9 rehearsal on a Sepolia fork: deploys the seven launch contracts with the values in
 /// launch.json (only the oracle signer is a test key, so answers can be signed here), mines and
 /// deploys the hook, seeds, and drives every plea outcome through the live Intake v2, completed by
 /// impersonating its writer exactly as the plane does. Uses the live PoolManager, PoolSwapTest,
-/// TestIMD, test oracle IMD and imd/acc Stacker.
+/// imdTEST and imd/acc Stacker. imdTEST is both the pool currency and the oracle fee (the Intake
+/// sells Sepolia questions only in it since 2026-10-18), so nothing is minted: the Letterbox buys
+/// the fee with PLEA, and balances are dealt (only imdTEST's owner and its minters mint). The
+/// Stacker stakes the earlier test IMD, so its credit reverts and cashback is paid in plain imdTEST.
 ///
 /// SEPOLIA_RPC_URL=https://ethereum-sepolia-rpc.publicnode.com forge test --match-path 'test/fork/*' -vv
 contract ForkTestnetTest is Test {
     address constant INTAKE = 0xa43e6F75ee006411F79Ac1C84120606C2330DE82;
     address constant WRITER = 0x3d3C0Df7C1a17d384545e9D7C8228897bD9625CB;
-    address constant ORACLE_IMD = 0x44a1Cd38474FB1748400E7DEb5F8D786ccE3F89A;
-    IERC20 constant IMD = IERC20(0x2B69099E59b05901faA1DD164fabf098bf831E82);
+    /// @dev imdTEST, the pool currency and the oracle fee asset alike.
+    address constant ORACLE_IMD = 0x56bcf2a5F47710649A4091219Ef0b56e2d1B58BF;
+    IERC20 constant IMD = IERC20(0x56bcf2a5F47710649A4091219Ef0b56e2d1B58BF);
     /// @dev The IMD seat NFT (test) on Sepolia (open mint), read by Seasons for the points multiplier.
     address constant SEAT = 0xa0443799c320E16C80801c9C1911F3571260287F;
-    IERC20 constant SIMD = IERC20(0xF9e2EEc3B610ec6781f7438aC5Fb4bc049d81Cc1);
     address constant STACKER = 0x0457276D7b036818B3EddC1A4A3FCeda61e9314d;
     address constant POOL_MANAGER = 0xE03A1074c86CFeDd5C142C4F04F1a1536e203543;
     IPoolSwapTest constant PST = IPoolSwapTest(0x9B6b46e2c869aa39918Db7f52f5557FE577B6eEe);
     uint256 constant SEASON = 18_000;
     uint256 constant DEADMAN = 118_800;
     uint256 constant CREDIT_GAS = 1_300_000;
-    uint256 constant START = 1792335600;
+    uint256 constant START = 1792594800;
     uint256 constant SIGNER_KEY = 0xA11CE;
 
     IIntakeV2 intake = IIntakeV2(INTAKE);
@@ -97,11 +99,9 @@ contract ForkTestnetTest is Test {
             address a = makeAddr(string.concat("w", vm.toString(i)));
             w.push(a);
             deal(address(IMD), a, 10_000e18);
-            IMintable(ORACLE_IMD).mint(a, 100e18);
             vm.startPrank(a);
             IMD.approve(address(PST), type(uint256).max);
             IMD.approve(address(gate), type(uint256).max);
-            IERC20(ORACLE_IMD).approve(address(gate), type(uint256).max);
             plea.approve(address(gate), type(uint256).max);
             plea.approve(address(PST), type(uint256).max);
             vm.stopPrank();
@@ -139,7 +139,7 @@ contract ForkTestnetTest is Test {
                     CREDIT_GAS,
                     START,
                     ORACLE_IMD,
-                    true,
+                    false,
                     keccak256(vm.getCode("Letterbox.sol:Letterbox")),
                     keccak256(vm.getCode("Tribunal.sol:Tribunal"))
                 )
@@ -274,15 +274,43 @@ contract ForkTestnetTest is Test {
         console2.log("wallGuardTick", int256(hook.wallGuardTick()));
     }
 
-    function test_buyStacksCashbackAndNeedsARecipient() public {
+    /// The owner's 2 imdTEST opening buy finds no imdTEST in the shared PoolManager, so its payouts join
+    /// the pool (the PAYOUT_RESERVE exception). After it, imd/acc's Sepolia Stacker stakes the earlier
+    /// test IMD, so its credit reverts inside the hook's `try` and the buyer's 0.5% comes back in plain
+    /// imdTEST in the same swap.
+    function test_buyPaysCashbackAndNeedsARecipient() public {
+        deal(address(IMD), owner, 2e18);
+        vm.prank(owner);
+        IMD.approve(address(PST), type(uint256).max);
+        vm.recordLogs();
+        buy(owner, 2e18);
+        assertGt(_hookAmount(vm.getRecordedLogs(), PleaHook.PayoutsToPool.selector), 0, "opening payouts stay in the pool");
+
         address a = w[0];
-        uint256 s0 = SIMD.balanceOf(a);
+        vm.recordLogs();
         uint256 g = gasleft();
-        buy(a, 100e18);
+        buy(a, 1e18);
         console2.log("buy gas (fork)", g - gasleft());
         assertGt(plea.balanceOf(a), 0);
-        assertGt(SIMD.balanceOf(a), s0, "cashback stacked as sIMD");
+        Vm.Log[] memory logs = vm.getRecordedLogs();
+        assertEq(_hookAmount(logs, PleaHook.CashbackStacked.selector), 0, "nothing staked");
+        assertGt(_hookAmount(logs, PleaHook.CashbackPaidPlain.selector), 0, "cashback paid in plain imdTEST");
         _swap(a, true, 1e18, "", true); // RecipientRequired
+    }
+
+    /// The amounts of the hook's `topic0` events in `logs`, summed.
+    function _hookAmount(Vm.Log[] memory logs, bytes32 topic0) internal view returns (uint256 sum) {
+        for (uint256 i; i < logs.length; ++i) {
+            if (logs[i].emitter == address(hook) && logs[i].topics[0] == topic0) {
+                sum += abi.decode(logs[i].data, (uint256));
+            }
+        }
+    }
+
+    /// The seller's 0.5% cashback on a sale since `before`: imd/acc's Sepolia Stacker cannot stake
+    /// imdTEST, so it reaches the seller in plain imdTEST beside the sale's IMD.
+    function _cashbackSince(uint256 before) internal view returns (uint256) {
+        return hook.totalCashback() - before;
     }
 
     function test_failureThroughTheLiveIntakeClearsThePlea() public {
@@ -510,10 +538,11 @@ contract ForkTestnetTest is Test {
         answer(gate.getPlea(id3).intakeId, 45);
         uint256 balBefore = plea.balanceOf(a);
         uint256 imdBefore = IMD.balanceOf(a);
+        uint256 cb0 = hook.totalCashback();
         vm.prank(a);
         uint256 out = gate.executeSell(0);
         assertEq(balBefore - plea.balanceOf(a), sellAmount, "exactly the approved amount left the wallet");
-        assertEq(IMD.balanceOf(a) - imdBefore, out);
+        assertEq(IMD.balanceOf(a) - imdBefore, out + _cashbackSince(cb0), "the sale and its plain cashback");
         assertGt(out, 0);
     }
 
@@ -554,12 +583,14 @@ contract ForkTestnetTest is Test {
         uint256 burned = hook.totalBurned();
         uint256 balBefore = plea.balanceOf(a);
         uint256 imdBefore = IMD.balanceOf(a);
+        uint256 cb0 = hook.totalCashback();
         vm.prank(a);
         vm.expectEmit(true, true, false, false, address(gate));
         emit CabalGate.SellExecuted(id, a, amount, 0);
         uint256 out = gate.executeSell(0);
         assertEq(balBefore - plea.balanceOf(a), amount);
-        assertEq(IMD.balanceOf(a) - imdBefore, out);
+        assertGt(_cashbackSince(cb0), 0);
+        assertEq(IMD.balanceOf(a) - imdBefore, out + _cashbackSince(cb0), "the sale and its plain cashback");
         assertGt(hook.totalBurned(), burned, "the 0.25% PLEA burn was taken");
         console2.log("sell: PLEA in", amount);
         console2.log("sell: IMD at spot", spot);
@@ -700,15 +731,15 @@ contract ForkTestnetTest is Test {
         id = gate.lastPleaOf(who);
     }
 
-    /// A letter sent as raw calldata pleads through the live Intake v2 (the Letterbox mints the
-    /// Sepolia oracle fee and buys the tip with the writer's PLEA); a stranger delivers the
-    /// approval for the tip; the writer gets the IMD and the points.
+    /// A letter sent as raw calldata pleads through the live Intake v2 (the Letterbox buys the
+    /// oracle fee and the tip with the writer's PLEA, and the Intake forwards the fee to IMD's
+    /// treasury); a stranger delivers the approval for the tip; the writer gets the IMD and the points.
     function test_letterThroughTheLiveIntakeIsDeliveredByARunner() public {
         address a = w[1];
         buy(a, 50e18);
         _warp(_now() + 1 days);
         uint256 bal = plea.balanceOf(a);
-        uint256 paidBefore = IERC20(ORACLE_IMD).balanceOf(INTAKE);
+        uint256 paidBefore = IMD.balanceOf(intake.payTo());
         (uint256 id, uint256 gasLetter) =
             _letter(a, "I bought at the launch and held a day; one tenth pays for my bike repair, the rest stays.");
         emit log_named_uint("letter gas", gasLetter);
@@ -718,16 +749,17 @@ contract ForkTestnetTest is Test {
         (address payer,,, bool done) = intake.requests(p.intakeId);
         assertEq(payer, address(gate));
         assertFalse(done);
-        assertGe(IERC20(ORACLE_IMD).balanceOf(INTAKE) + 1, paidBefore, "the Intake was paid");
+        assertEq(IMD.balanceOf(intake.payTo()) - paidBefore, 0.5e18, "the Intake was paid 0.5 imdTEST");
         assertEq(IMD.balanceOf(address(letterbox)), 0.25e18, "tip held");
         answer(p.intakeId, 40);
         address runner = makeAddr("runner");
         uint256 imdBefore = IMD.balanceOf(a);
+        uint256 cb0 = hook.totalCashback();
         uint256 g = gasleft();
         vm.prank(runner);
         uint256 out = letterbox.deliver(id);
         emit log_named_uint("deliver gas", g - gasleft());
-        assertEq(IMD.balanceOf(a) - imdBefore, out);
+        assertEq(IMD.balanceOf(a) - imdBefore, out + _cashbackSince(cb0), "the sale and its plain cashback");
         assertGe(out * 10_000, _spotValue(p.amount) * 9_500, "at least 95% of spot, no auto-sell fee on a letter");
         assertEq(IMD.balanceOf(runner), 0.25e18);
         assertFalse(seasons.recorded(id), "the points wait for the objection window");
@@ -739,8 +771,8 @@ contract ForkTestnetTest is Test {
     }
 
     /// Objection! through the live Intake v2: the committed Tribunal, deployed after the launch and before the seed,
-    /// a second wallet objects to an approved plea (the Tribunal mints the Sepolia oracle fee and
-    /// pulls the 0.35 IMD stake), the writer completes with a re-score signed under the Tribunal's
+    /// a second wallet objects to an approved plea (it pays the 0.5 imdTEST oracle fee and the 0.35
+    /// imdTEST stake), the writer completes with a re-score signed under the Tribunal's
     /// own domain, the stake goes to the season pot, and the points wait for the window. A second
     /// objection the panel cannot answer is void and its stake comes back.
     function test_objectionThroughTheLiveIntake() public {
@@ -760,7 +792,7 @@ contract ForkTestnetTest is Test {
         vm.expectRevert(abi.encodeWithSelector(Seasons.Held.selector, id));
         seasons.record(id);
 
-        uint256 paidBefore = IERC20(ORACLE_IMD).balanceOf(INTAKE);
+        uint256 paidBefore = IMD.balanceOf(intake.payTo());
         uint256 stakeBefore = IMD.balanceOf(b);
         vm.startPrank(b);
         IMD.approve(address(tribunal), type(uint256).max);
@@ -769,8 +801,8 @@ contract ForkTestnetTest is Test {
             tribunal.object(id, "Three lines of boilerplate: the same rent story every wallet tells this week.");
         emit log_named_uint("object gas", g - gasleft());
         vm.stopPrank();
-        assertEq(stakeBefore - IMD.balanceOf(b), 0.35e18, "stake in pool IMD");
-        assertGe(IERC20(ORACLE_IMD).balanceOf(INTAKE) + 1, paidBefore, "the Intake was paid the minted fee");
+        assertEq(stakeBefore - IMD.balanceOf(b), 0.85e18, "the 0.5 fee and the 0.35 stake, both in imdTEST");
+        assertEq(IMD.balanceOf(intake.payTo()) - paidBefore, 0.5e18, "the Intake was paid 0.5 imdTEST");
         assertEq(IMD.balanceOf(address(tribunal)), 0.35e18);
         bytes32 orid = tribunal.objection(oid).intakeId;
         (address payer,,, bool done) = intake.requests(orid);
