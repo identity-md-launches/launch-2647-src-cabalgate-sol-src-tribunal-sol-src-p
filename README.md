@@ -275,7 +275,7 @@ Then:
 | Cashback credit gas | 400,000 (a first credit measured 197k–249k on a mainnet fork) |
 | Letterbox | buys the 0.5 IMD oracle fee with the writer's PLEA, with the tip (`mintOracleFee = false`) |
 | Seed | 14,000 IMD market cap (`PleaHook.MARKET_CAP_IMD`; 5,700 on the Sepolia runs) |
-| Owner | **TODO** (a fresh wallet; the owner cannot play seasons) |
+| Owner | `0x5BF3597216f9019Cf10CF680783289Efc8639Bf0` (PLEA's launch owner: it receives the hook's 1% owner fee and sets the distributor's root once; it cannot play seasons) |
 
 The manifest rehearsal measures the launch as the chain charges it (the init codes as transaction data, then their execution) plus the overhead of IMD's real factory, measured by sending these five codes through the mainnet ProjectFactory on a fork (994,547 gas; the test adds 1.1M): about **13.49M gas**, and about **16.46M** with the 22% headroom IMD's deployer adds to a gas limit, under the 16,777,216 cap; the test asserts it. `deployLetterbox` is its own transaction of about **5.58M** gas, and `deployTribunal` about **5.27M**, `deployHook` about **5.4M** on Ethereum's schedule. `test/fork/ForkTestnet.t.sol` rehearses the whole run on a Sepolia fork against the live Intake v2:
 
