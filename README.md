@@ -271,7 +271,7 @@ Then:
 | Season | 15 days |
 | Dead-man | 33 hours |
 | Plea timings | 20 min, 7 min, 4 h |
-| `START` | **TODO** (placeholder 1793016000 = 2026-10-26 12:00 UTC in `launch.json`; the owner may seed earlier) |
+| `START` | 1795532400 = Tue 2026-11-24 15:00 UTC (anyone may seed from then; the owner may seed earlier) |
 | Cashback credit gas | 400,000 (a first credit measured 197k–249k on a mainnet fork) |
 | Letterbox | buys the 0.5 IMD oracle fee with the writer's PLEA, with the tip (`mintOracleFee = false`) |
 | Seed | 14,000 IMD market cap (`PleaHook.MARKET_CAP_IMD`; 5,700 on the Sepolia runs) |

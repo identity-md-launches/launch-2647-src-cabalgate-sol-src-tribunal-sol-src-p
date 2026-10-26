@@ -45,8 +45,8 @@ abstract contract ManifestFixture is Test {
     address constant STACKER = 0x06909F672301F28A810f78cfe7a754851269F4F0;
     /// @dev The IMD seat NFT (identity.md), read by Seasons for the points multiplier.
     address constant SEAT = 0x0000eC93127BAA929E58E97dd0095A2BFb38ec1D;
-    /// @dev launch.json's placeholder (2026-10-26 12:00 UTC) until the user chooses START.
-    uint256 constant START = 1793016000;
+    /// @dev launch.json's START: Tue 2026-11-24 15:00 UTC.
+    uint256 constant START = 1795532400;
     uint256 constant SEASON = 15 days;
     uint256 constant CREDIT_GAS = 400_000;
     bool constant MINT_ORACLE_FEE = false;
