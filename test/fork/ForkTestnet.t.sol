@@ -279,6 +279,8 @@ contract ForkTestnetTest is Test {
     /// test IMD, so its credit reverts inside the hook's `try` and the buyer's 0.5% comes back in plain
     /// imdTEST in the same swap.
     function test_buyPaysCashbackAndNeedsARecipient() public {
+        // Run 9 (launch #2234) left 0.035 imdTEST of dust in the shared PoolManager: empty it first.
+        deal(address(IMD), POOL_MANAGER, 0);
         deal(address(IMD), owner, 2e18);
         vm.prank(owner);
         IMD.approve(address(PST), type(uint256).max);
