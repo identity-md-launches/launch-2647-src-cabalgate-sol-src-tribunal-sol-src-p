@@ -243,7 +243,7 @@ contract CabalGate is OracleAttestationConsumer {
     /// @notice The on-chain fact score (0-41) for `seller` selling `amount` now: share of the balance
     /// at most 20%: 16, at most 35%: 9, more: 3; held 7 days: 3, 3 days: 2, 1 day: 1; at a loss: 13,
     /// gain at most 50%: 12, 200%: 10, 500%: 8, 1,000%: 6, more: 4 (PLEA no buy record covers: held since
-    /// trading opened, profit 10); 24h trend up: 9, flat: 5, down: 0.
+    /// trading opened, profit 9); 24h trend up: 9, flat: 5, down: 0.
     /// Prices are the hook's hourly checkpoints, never the spot price, and the holding time is
     /// buy-weighted.
     function factScore(address seller, uint256 amount) public view returns (uint8 score) {
@@ -273,7 +273,7 @@ contract CabalGate is OracleAttestationConsumer {
         uint256 latest = h.latestPrice();
         // The PLEA a buy record covers scores the record's own holding time and profit. PLEA it does
         // not cover (the distributor's claims, season prizes, an exempt transfer) never inherits the
-        // history of a dust buy: it counts as held since trading opened, at the profit table's middle.
+        // history of a dust buy: it counts as held since trading opened, at profit 9 (between 10 and 8).
         // A plea larger than the record takes the PLEA-weighted mean of the two, rounded to the nearest
         // point, so one wei over the record changes nothing either way (rounds 7 and 8, R7-A1-1, R8-A1-2).
         uint256 facts = _heldPoints(avgBuyTime);
@@ -288,7 +288,7 @@ contract CabalGate is OracleAttestationConsumer {
             }
         }
         if (heldPlea < amount) {
-            facts = (heldPlea * facts + (amount - heldPlea) * (_heldPoints(startedAt) + 10) + amount / 2) / amount;
+            facts = (heldPlea * facts + (amount - heldPlea) * (_heldPoints(startedAt) + 9) + amount / 2) / amount;
         }
         score += uint8(facts);
         uint256 ago = h.price24hAgo();

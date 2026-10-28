@@ -167,6 +167,7 @@ Earlier history (runs 2–4, the pre-run-3 audit `AuditRun3.t.sol`, the run-4 im
 ## Changes after run 9 (branch `next`, for mainnet; not findings)
 
 - **Pass mark 71 → 69 and holding points 7 / 4 / 2 → 3 / 2 / 1** (the owner's decision, 2026-10-28, after run 9's live scores): `CabalGate.PASS_MARK` 69, `_heldPoints` ≥7 days 3, ≥3 days 2, ≥1 day 1; the fact score is now 0–41 and the lowest need 28. Run 9's serious pleas scored 27–35 (mostly 33–34) and none passed on day 0 (need 37 for a fresh buyer selling up to 20% at a loss): now a strong plea can pass on the first day (need 35), a day-old one at 34, three days 33 as before, a week 32 (was 30), so time weighs less and the plea more. Every other number is unchanged; the Letterbox and Tribunal hashes are unchanged (neither reads either constant). Tests: every need and fact-score expectation re-derived from the new numbers.
+- **Received PLEA at profit 9, was 10** (the owner's decision, 2026-10-28): PLEA no buy record covers (distributor claims, season prizes, an exempt transfer, and whatever is left once a holder has sold as much as it bought) scores held since trading opened at profit 9, between the table's 10 and 8 (`_factScoreAt`). A 20% plea of it needs 39 / 38 / 37 / 36 on day 0 / 1 / 3 / 7 with a flat price and 34 / 33 / 32 from day 1 with a rising one: in a rising market a claimer faces the bar a buyer at a loss faces in a flat one. Tests: the received-PLEA expectations re-derived.
 
 ## Changes after run 8.5 (branch `next`, for mainnet; not findings)
 
