@@ -17,7 +17,7 @@ import {IIntake, IPLEA, IPleaHook} from "./interfaces/IPleaParts.sol";
 /// @title CabalGate — the only way to sell PLEA while the Cabal lives
 /// @notice A seller submits a plea and pays the IdentityMD Intake for an oracle question; a panel
 /// of 30 judges ("the Cabal") scores the plea 0-45 and the signed score comes back through the
-/// Intake's callback. A score at or above the seller's need (71 minus the on-chain fact score)
+/// Intake's callback. A score at or above the seller's need (69 minus the on-chain fact score)
 /// opens a seven-minute window to sell through this gate.
 ///
 /// The Cabal lives from the moment trading opens until `DEADMAN` passes without a signed score.
@@ -119,7 +119,7 @@ contract CabalGate is OracleAttestationConsumer {
     uint256 public constant MIN_SHARE_BPS = 100;
     uint8 public constant FLAG_BY_LETTER = 1;
     uint8 public constant FLAG_AUTO_SELL = 2;
-    uint256 public constant PASS_MARK = 71;
+    uint256 public constant PASS_MARK = 69;
     uint256 public constant MAX_PLEA_SCORE = 45;
     uint16 public constant PANEL_SIZE = 30;
     uint16 public constant QUORUM = 17;
@@ -240,8 +240,8 @@ contract CabalGate is OracleAttestationConsumer {
         return IPleaHook(plea.hook());
     }
 
-    /// @notice The on-chain fact score (0-45) for `seller` selling `amount` now: share of the balance
-    /// at most 20%: 16, at most 35%: 9, more: 3; held 7 days: 7, 3 days: 4, 1 day: 2; at a loss: 13,
+    /// @notice The on-chain fact score (0-41) for `seller` selling `amount` now: share of the balance
+    /// at most 20%: 16, at most 35%: 9, more: 3; held 7 days: 3, 3 days: 2, 1 day: 1; at a loss: 13,
     /// gain at most 50%: 12, 200%: 10, 500%: 8, 1,000%: 6, more: 4 (PLEA no buy record covers: held since
     /// trading opened, profit 10); 24h trend up: 9, flat: 5, down: 0.
     /// Prices are the hook's hourly checkpoints, never the spot price, and the holding time is
@@ -301,7 +301,7 @@ contract CabalGate is OracleAttestationConsumer {
     function _heldPoints(uint256 since) internal view returns (uint256) {
         if (since == 0 || since > block.timestamp) return 0;
         uint256 held = block.timestamp - since;
-        return held >= 7 days ? 7 : held >= 3 days ? 4 : held >= 1 days ? 2 : 0;
+        return held >= 7 days ? 3 : held >= 3 days ? 2 : held >= 1 days ? 1 : 0;
     }
 
     // ================================================================ plead
