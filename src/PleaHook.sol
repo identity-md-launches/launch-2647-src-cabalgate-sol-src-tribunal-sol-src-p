@@ -80,8 +80,9 @@ contract PleaHook {
     uint256 public constant LAUNCH_WINDOW = 90 minutes;
     uint256 public constant LAUNCH_EXTRA_BPS = 7_000; // 70% -> 0% linear, to pool liquidity
     uint256 public constant LAUNCH_MAX_BUY = 5_000_000e18;
-    /// @dev Below this much IMD in the PoolManager a buy's unfunded payouts join liquidity (2 IMD covers
-    /// the 1.75% payouts of the largest buy the launch window allows).
+    /// @dev While this pool's own IMD before the swap (market band, wall, retainClaims) plus a buy's own
+    /// fee is under this much and the PoolManager cannot pay them, the buy's unfunded payouts join
+    /// liquidity (2 IMD covers the 1.75% payouts of the largest buy the launch window allows).
     uint256 public constant PAYOUT_RESERVE = 2e18;
     uint256 public constant MARKET_CAP_IMD = 5_700e18;
     uint256 public constant CAP_FLOOR = 900_000e18;
@@ -787,8 +788,8 @@ contract PleaHook {
     function _applyCap() internal {
         Band memory m = market;
         if (m.liquidity == 0) return;
-        uint160 priceBefore = currentSqrtPriceX96();
-        uint256 held = _pleaIn(m, priceBefore);
+        uint160 spot = currentSqrtPriceX96();
+        uint256 held = _pleaIn(m, spot);
         if (held < inventoryCap) {
             uint256 next = held; // full ratchet
             uint256 elapsed = block.timestamp - lastCapDecayAt;
@@ -820,7 +821,7 @@ contract PleaHook {
             poolManager.mint(address(this), _id(address(imd)), imdOut);
             retainClaims += imdOut;
         }
-        if (currentSqrtPriceX96() != priceBefore) revert PriceMoved();
+        if (currentSqrtPriceX96() != spot) revert PriceMoved();
         emit Trimmed(uint128(toRemove), pleaOut, imdOut);
     }
 

@@ -80,7 +80,7 @@ Launched through the IMD swarm straight from this repository (`launch.open` with
 
 Buying is open to everyone from the moment trading opens. PLEA bought while the Cabal lives is delivered as a plain ERC-20 to the buyer, and the hook records each buyer's cost basis and buy-weighted holding time for the fact score.
 
-For the first **90 minutes** after trading opens, buys pay an extra launch fee that falls from 70% to 0% of the IMD that reaches the pool (41.8% of the IMD sent at the open, 0% at the end) and are capped at **5M PLEA** each.
+For the first **90 minutes** after trading opens, buys pay an extra launch fee that falls from 70% to 0% of the IMD that reaches the pool (40.7% of the IMD sent at the open, 41.9% with the 2% base fee; 0% at the end) and are capped at **5M PLEA** each.
 
 ### Pleading to sell
 
@@ -336,7 +336,7 @@ The mainnet gas pass (escaping only the plea texts in the oracle question, unche
 - **The oracle callback is kept small.** Mainnet gives it 200k gas, so it only stores the signed score. Points are recorded separately (`record`, or `closeSeason` with a list of plea ids).
 - **Cashback can't be skipped by a low gas limit.** A swap must reach the hook with the credit gas plus a 1M reserve, or it reverts. A wallet's gas estimate therefore always includes the sIMD credit, and only a credit that itself reverts (or a Stacker address without code, a launch misconfiguration) falls back to plain IMD.
 - **Signatures:** a plain ECDSA signature is accepted first, then ERC-1271, so an oracle key with an EIP-7702 delegation still verifies.
-- **The very first buy** after trading opens may find no IMD in the PoolManager yet. That one trade's cashback, owner and prize shares then go to pool liquidity instead of reverting (a buy whose fee rounds to zero does not count as that first buy). A later buy larger than about 57× the IMD the PoolManager holds at that moment is paid those shares as ERC-6909 IMD claims instead (the swapper's input settles after the hook runs); the owner's own first buy right after `seed` keeps that to the opening minutes.
+- **The opening buys** may find a PoolManager that cannot pay a buy's cashback, owner and prize shares yet (the swapper's input settles after the hook runs). While this pool's own IMD (the market band and the wall before the swap, plus the hook's claims) plus the buy's own fee is under 2 IMD (`PAYOUT_RESERVE`), those shares go to pool liquidity instead of reverting: a live condition decided per buy, not a one-time flag. A later buy larger than about 57× the pool's own IMD is paid those shares as ERC-6909 IMD claims instead; the PoolManager's balance is never the measure (a router could flash-take it inside its own unlock). The owner's own 2 IMD buy right after `seed` closes the exception; on Ethereum the shared PoolManager already holds other pools' IMD, so the shares are paid plainly.
 
 ---
 
