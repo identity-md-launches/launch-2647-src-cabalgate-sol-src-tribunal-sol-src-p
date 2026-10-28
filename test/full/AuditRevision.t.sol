@@ -252,22 +252,22 @@ contract AuditRevisionTest is Fixture {
     }
 
     /// Received PLEA (a claim, a prize) that no buy record covers is scored as held since trading
-    /// opened, at the profit table's middle (10), never with a dust buy's history (a loss: 13).
+    /// opened, at profit 9 (between the table's 10 and 8), never with a dust buy's history (a loss: 13).
     function test_dustBuyDoesNotLendItsHistoryToReceivedTokens() public {
         vm.prank(address(distributor));
         plea.transfer(alice, 1_000_000e18);
         uint256 amount = 1000e18;
-        assertEq(gate.factScore(alice, amount), 16 + 0 + 10 + 5, "received: share 16, profit 10, flat 5");
+        assertEq(gate.factScore(alice, amount), 16 + 0 + 9 + 5, "received: share 16, profit 9, flat 5");
         buy(alice, 1e12);
         (, uint256 held,) = hook.basisOf(alice);
         assertLt(held, amount);
-        assertEq(gate.factScore(alice, amount), 31, "dust basis scored a received sale");
+        assertEq(gate.factScore(alice, amount), 30, "dust basis scored a received sale");
         skip(7 days);
-        assertEq(gate.factScore(alice, amount), 16 + 3 + 10 + 5, "held since trading opened, not the dust's loss");
+        assertEq(gate.factScore(alice, amount), 16 + 3 + 9 + 5, "held since trading opened, not the dust's loss");
     }
 
     /// @dev Round 7 A1's setup: Alice's buy record is a day old and more than 11x up (hold 1, profit 4),
-    /// while PLEA no record covers scores hold 1 (trading opened a day ago) and profit 10; she also
+    /// while PLEA no record covers scores hold 1 (trading opened a day ago) and profit 9; she also
     /// holds three times her bought PLEA as a prize, so a plea of the record is 25% of her balance.
     function mixedHolder() internal returns (uint256 held) {
         buy(alice, 10e18);
@@ -295,17 +295,17 @@ contract AuditRevisionTest is Fixture {
 
     /// A plea larger than the buy record takes the PLEA-weighted mean of the record's facts and the
     /// received PLEA's, rounded to the nearest point: a fifth of the plea uncovered moves the 5 of the
-    /// record a fifth of the way to the 11 of received PLEA (6.2 -> 6).
+    /// record a fifth of the way to the 10 of received PLEA (6.0, plus the half for rounding: 6).
     function test_aPartlyCoveredPleaTakesThePleaWeightedMean() public {
         uint256 held = mixedHolder();
         uint256 amount = held + held / 4;
-        assertEq(gate.factScore(alice, amount), 9 + 6 + 9, "share 9 (31.25%), facts (4 x 5 + 1 x 11) / 5 = 6.2 -> 6, up 9");
-        assertEq(gate.factScore(alice, held * 2), 3 + 8 + 9, "share 3 (50%), half and half: (5 + 11) / 2 = 8, up 9");
+        assertEq(gate.factScore(alice, amount), 9 + 6 + 9, "share 9 (31.25%), facts (4 x 5 + 1 x 10) / 5 = 6, up 9");
+        assertEq(gate.factScore(alice, held * 2), 3 + 8 + 9, "share 3 (50%), half and half: (5 + 10) / 2 = 7.5 -> 8, up 9");
     }
 
     /// The other direction (round 8, R8-A1-2): a week-old record at a loss (3 + 13 = 16) beats received
-    /// PLEA (3 + 10 = 13); one wei over it keeps 37 (the mean, 15.99..., rounds to the nearest point,
-    /// 16; rounded down it would be 36), and a plea twice the record takes 14.5 -> 15.
+    /// PLEA (3 + 9 = 12); one wei over it keeps 37 (the mean, 15.99..., rounds to the nearest point,
+    /// 16; rounded down it would be 36), and a plea twice the record takes (16 + 12) / 2 = 14.
     function test_oneWeiOverABetterBuyRecordKeepsItsFacts() public {
         skip(8 days);
         uint256 held = 1_000e18;
@@ -318,7 +318,7 @@ contract AuditRevisionTest is Fixture {
         vm.mockCall(address(hook), abi.encodeWithSelector(IPleaHook.price24hAgo.selector), abi.encode(uint256(0)));
         assertEq(gate.factScore(alice, held), 16 + 3 + 13 + 5, "the record: share 16, a week 3, at a loss 13, no history 5");
         assertEq(gate.factScore(alice, held + 1), 16 + 3 + 13 + 5, "one wei over keeps the record's facts");
-        assertEq(gate.factScore(alice, held * 2), 16 + 15 + 5, "half and half: (16 + 13) / 2 = 14.5 -> 15");
+        assertEq(gate.factScore(alice, held * 2), 16 + 14 + 5, "half and half: (16 + 12) / 2 = 14");
         vm.clearMockedCalls();
     }
 
