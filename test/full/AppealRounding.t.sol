@@ -14,8 +14,9 @@ contract AppealRoundingTest is Fixture {
         buy(bob, 1e18);
         holdAWeek(bob); // run 7: a 50% plea needs the 7-day holding points
         // Round 4 (R4-A1-1): the trend reference must lie within two days, so a quiet week reads as "no
-        // history"; a real day-old reference and an up trend (the 50% plea needs the 9 points).
-        trendUp(bob, 150e18);
+        // history"; a real day-old reference and an up trend (the 50% plea needs the 9 points). The pump
+        // scales with the seed so it clears +2% on any market cap (150 IMD on the 5,700 Sepolia seed).
+        trendUp(bob, 150e18 * hook.MARKET_CAP_IMD() / 5_700e18);
     }
 
     function test_minimumSitePleaCanAppealAfterFeeSaleRounding() public {
