@@ -117,7 +117,7 @@ contract JudgeFindingsTest is Fixture {
         skip(1 days);
         uint256 id = _letter(alice, "A fifth for the electrician; the rest stays until the lights go out.");
         CabalGate.Plea memory p = gate.getPlea(id);
-        assertEq(p.need, 71 - p.factScore);
+        assertEq(p.need, 69 - p.factScore);
         uint8 need = p.need;
         require(answer(id, 0), "verdict");
         uint256 ap = _letter(alice, "APPEAL The electrician does not wait; the rest still stays.");

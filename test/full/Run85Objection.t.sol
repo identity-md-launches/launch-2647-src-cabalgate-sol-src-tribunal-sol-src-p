@@ -58,7 +58,7 @@ contract Run85ObjectionTest is SepoliaFixture {
         assertEq(tribunal.PANEL_SIZE(), 30);
         assertEq(tribunal.QUORUM(), 17);
         assertEq(tribunal.MAX_TEXT_BYTES(), 280);
-        assertEq(gate.PASS_MARK(), 71);
+        assertEq(gate.PASS_MARK(), 69);
         assertEq(gate.MAX_PLEA_SCORE(), 45);
         assertEq(gate.SEASON(), 18_000);
         assertEq(gate.DEADMAN(), 118_800);

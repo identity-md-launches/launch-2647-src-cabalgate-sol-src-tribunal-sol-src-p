@@ -96,8 +96,8 @@ contract Run7SeatHandler is Test {
         if (approvals.length >= 96) return;
         uint256 id = approvals.length + 1;
         uint256 a = actorSeed % 12;
-        // A real approved gate result has score >= 26 (71 minus at most 45 fact points).
-        uint8 score = uint8(bound(rawScore, 26, 45));
+        // A real approved gate result has score >= 28 (69 minus at most 41 fact points).
+        uint8 score = uint8(bound(rawScore, 28, 45));
         results.setResult(id, actors[a], score, passes, results.startedAt());
         approvals.push(SeasonModel.Approval(id, 0, a, 0, false));
         judged.push(score);

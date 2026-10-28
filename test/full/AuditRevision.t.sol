@@ -263,11 +263,11 @@ contract AuditRevisionTest is Fixture {
         assertLt(held, amount);
         assertEq(gate.factScore(alice, amount), 31, "dust basis scored a received sale");
         skip(7 days);
-        assertEq(gate.factScore(alice, amount), 16 + 7 + 10 + 5, "held since trading opened, not the dust's loss");
+        assertEq(gate.factScore(alice, amount), 16 + 3 + 10 + 5, "held since trading opened, not the dust's loss");
     }
 
-    /// @dev Round 7 A1's setup: Alice's buy record is a day old and more than 11x up (hold 2, profit 4),
-    /// while PLEA no record covers scores hold 2 (trading opened a day ago) and profit 10; she also
+    /// @dev Round 7 A1's setup: Alice's buy record is a day old and more than 11x up (hold 1, profit 4),
+    /// while PLEA no record covers scores hold 1 (trading opened a day ago) and profit 10; she also
     /// holds three times her bought PLEA as a prize, so a plea of the record is 25% of her balance.
     function mixedHolder() internal returns (uint256 held) {
         buy(alice, 10e18);
@@ -286,26 +286,26 @@ contract AuditRevisionTest is Fixture {
     function test_oneWeiOverTheBuyRecordKeepsTheRecordsFacts() public {
         uint256 held = mixedHolder();
         uint8 covered = gate.factScore(alice, held);
-        assertEq(covered, 9 + 2 + 4 + 9, "covered: share 9, one day 2, gain over 1,000% 4, trend up 9");
+        assertEq(covered, 9 + 1 + 4 + 9, "covered: share 9, one day 1, gain over 1,000% 4, trend up 9");
         uint256 over = held + 1;
         assertEq(gate.factScore(alice, over), covered, "one wei over the record");
-        vm.expectRevert(abi.encodeWithSelector(CabalGate.CannotPass.selector, 71 - uint256(covered)));
+        vm.expectRevert(abi.encodeWithSelector(CabalGate.CannotPass.selector, 69 - uint256(covered)));
         plead(alice, over);
     }
 
     /// A plea larger than the buy record takes the PLEA-weighted mean of the record's facts and the
-    /// received PLEA's, rounded down: a fifth of the plea uncovered moves the 6 of the record a
-    /// fifth of the way to the 12 of received PLEA (7.2 -> 7).
+    /// received PLEA's, rounded to the nearest point: a fifth of the plea uncovered moves the 5 of the
+    /// record a fifth of the way to the 11 of received PLEA (6.2 -> 6).
     function test_aPartlyCoveredPleaTakesThePleaWeightedMean() public {
         uint256 held = mixedHolder();
         uint256 amount = held + held / 4;
-        assertEq(gate.factScore(alice, amount), 9 + 7 + 9, "share 9 (31.25%), facts (4 x 6 + 1 x 12) / 5 = 7, up 9");
-        assertEq(gate.factScore(alice, held * 2), 3 + 9 + 9, "share 3 (50%), half and half: (6 + 12) / 2 = 9, up 9");
+        assertEq(gate.factScore(alice, amount), 9 + 6 + 9, "share 9 (31.25%), facts (4 x 5 + 1 x 11) / 5 = 6.2 -> 6, up 9");
+        assertEq(gate.factScore(alice, held * 2), 3 + 8 + 9, "share 3 (50%), half and half: (5 + 11) / 2 = 8, up 9");
     }
 
-    /// The other direction (round 8, R8-A1-2): a week-old record at a loss (7 + 13 = 20) beats received
-    /// PLEA (7 + 10 = 17); one wei over it now keeps 41 (the mean, 19.99..., rounds to the nearest point,
-    /// 20; rounded down it was 40), and a plea twice the record takes 18.5 -> 19.
+    /// The other direction (round 8, R8-A1-2): a week-old record at a loss (3 + 13 = 16) beats received
+    /// PLEA (3 + 10 = 13); one wei over it keeps 37 (the mean, 15.99..., rounds to the nearest point,
+    /// 16; rounded down it would be 36), and a plea twice the record takes 14.5 -> 15.
     function test_oneWeiOverABetterBuyRecordKeepsItsFacts() public {
         skip(8 days);
         uint256 held = 1_000e18;
@@ -316,9 +316,9 @@ contract AuditRevisionTest is Fixture {
         );
         vm.mockCall(address(hook), abi.encodeWithSelector(IPleaHook.latestPrice.selector), abi.encode(uint256(1 << 96) / 20));
         vm.mockCall(address(hook), abi.encodeWithSelector(IPleaHook.price24hAgo.selector), abi.encode(uint256(0)));
-        assertEq(gate.factScore(alice, held), 16 + 7 + 13 + 5, "the record: share 16, a week 7, at a loss 13, no history 5");
-        assertEq(gate.factScore(alice, held + 1), 16 + 7 + 13 + 5, "one wei over keeps the record's facts");
-        assertEq(gate.factScore(alice, held * 2), 16 + 19 + 5, "half and half: (20 + 17) / 2 = 18.5 -> 19");
+        assertEq(gate.factScore(alice, held), 16 + 3 + 13 + 5, "the record: share 16, a week 3, at a loss 13, no history 5");
+        assertEq(gate.factScore(alice, held + 1), 16 + 3 + 13 + 5, "one wei over keeps the record's facts");
+        assertEq(gate.factScore(alice, held * 2), 16 + 15 + 5, "half and half: (16 + 13) / 2 = 14.5 -> 15");
         vm.clearMockedCalls();
     }
 

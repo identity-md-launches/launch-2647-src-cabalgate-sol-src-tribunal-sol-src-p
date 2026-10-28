@@ -61,7 +61,7 @@ contract GateTest is Fixture {
         uint256 id = plead(alice, amount);
         CabalGate.Plea memory p = gate.getPlea(id);
         assertEq(p.factScore, gate.factScore(alice, amount));
-        assertEq(p.need, 71 - p.factScore);
+        assertEq(p.need, 69 - p.factScore);
         uint8 need = p.need;
         assertTrue(answer(id, need));
         p = gate.getPlea(id);
@@ -157,7 +157,7 @@ contract GateTest is Fixture {
         buy(fresh, 1e18);
         uint256 amount = plea.balanceOf(fresh) * 40 / 100;
         assertLt(amount, gate.MAX_SELL());
-        uint256 need = 71 - gate.factScore(fresh, amount);
+        uint256 need = 69 - gate.factScore(fresh, amount);
         assertGt(need, 45);
         vm.prank(fresh);
         vm.expectRevert(abi.encodeWithSelector(CabalGate.CannotPass.selector, need));
