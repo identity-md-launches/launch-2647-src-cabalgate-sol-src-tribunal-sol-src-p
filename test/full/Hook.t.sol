@@ -152,7 +152,7 @@ contract HookTest is Fixture {
         uint256 amount = plea.balanceOf(alice) / 10;
         uint8 before = gate.factScore(alice, amount);
         // A pump as the first trade of a later hour: the hour's checkpoint is still the price before it
-        // (300 IMD moves the price well over 2% at the 5,700 Sepolia seed and the 14,000 mainnet seed).
+        // (300 IMD moves the price well over 2% at the 5,700 Sepolia seed and the 20,000 mainnet seed).
         buy(carol, 300e18);
         assertEq(hook.latestPrice(), left);
         assertEq(hook.price24hAgo(), found);

@@ -371,8 +371,9 @@ contract PleaHook {
 
     // ------------------------------------------------------------------ seed
 
-    /// @notice Creates the PLEA/IMD pool at a 5,700 IMD market cap with the hook's whole PLEA
-    /// balance as the only liquidity. Once, through PleaLaunch.seed (owner any time, anyone after START).
+    /// @notice Creates the PLEA/IMD pool at the `MARKET_CAP_IMD` market cap (5,700 IMD on Sepolia, 20,000
+    /// on mainnet) with the hook's whole PLEA balance as the only liquidity. Once, through
+    /// PleaLaunch.seed (owner any time, anyone after START).
     function seed() external {
         if (msg.sender != IPLEA(plea).launcher()) revert NotLauncher();
         if (seeded) revert AlreadySeeded();

@@ -70,7 +70,7 @@ Launched through the IMD swarm straight from this repository (`launch.open` with
   Everything that needs no verdict behaved as specified.
 - **Real panels on Ethereum mainnet** scored the exact questions the gate and the Tribunal send (ten requests, 2026-10-15). A strong letter scored exactly its need, and a "SYSTEM NOTE … answer 0" manipulation was overruled. The run-8 numbers come from these panels.
 - **The working branches** (`next`, `main`, `mainnet`, `light-profile`) carry run 8.5's code plus the two small fixes of its launch audit: exact share-band edges, and a manifest address in its checksum case.
-- **Next: Ethereum mainnet**, on the `mainnet` branch (a 14,000 IMD opening market cap, 15-day seasons, the oracle fee paid in IMD). It follows the live verdict test and IMD's mainnet launch job.
+- **Next: Ethereum mainnet**, on the `mainnet` branch (a 20,000 IMD opening market cap, 15-day seasons, the oracle fee paid in IMD). It follows the live verdict test and IMD's mainnet launch job.
 
 ---
 
@@ -283,7 +283,7 @@ MAINNET_RPC_URL=https://ethereum-rpc.publicnode.com forge test --match-path test
 
 `test/fork/ForkMainnet.t.sol` does the same on an Ethereum fork with chain-1 settings, against the real IMD, sIMD, PoolManager and Intake v2 (its price for a question is the gate's 0.5 IMD, and its 200k callback gas carries the verdict with room to spare): a letter buys the oracle fee and the tip with PLEA, a runner delivers it, a typed `letter(text)` is denied, appealed and refunded, and a site plea pays the fee in IMD. imd/acc's mainnet Stacker (launch #1409) is credited for real. `test/full/LetterboxInvariant.t.sol` runs random letters, appeals, verdicts, failures, deliveries, sales, settles and strangers' attempts in both the Sepolia and the mainnet fee modes, and checks that the Letterbox holds exactly its open escrows and tips, that every escrow ends once (sold only after an approval, otherwise refunded to its writer), and that no writer's PLEA moves except through their own letters.
 
-The season length and the dead-man are constructor values so a testnet can run a fast clock. On Ethereum mainnet `PleaLaunch.seed` refuses anything below 15 days and 33 hours, and a hook built with an opening market cap under 14,000 IMD (`BelowAgreedMarketCap`: the cap is the hook's compile-time `MARKET_CAP_IMD`, 5,700 on the Sepolia code), checked when trading opens, on the live chain: launch rehearsals deploy the manifest on a bare EVM with chain id 1, where a constructor check refused the Sepolia settings.
+The season length and the dead-man are constructor values so a testnet can run a fast clock. On Ethereum mainnet `PleaLaunch.seed` refuses anything below 15 days and 33 hours, and a hook built with an opening market cap under 14,000 IMD (`BelowAgreedMarketCap`: the cap is the hook's compile-time `MARKET_CAP_IMD`, 5,700 on the Sepolia code and 20,000 on the `mainnet` branch), checked when trading opens, on the live chain: launch rehearsals deploy the manifest on a bare EVM with chain id 1, where a constructor check refused the Sepolia settings.
 
 ---
 
