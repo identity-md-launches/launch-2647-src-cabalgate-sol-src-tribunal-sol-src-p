@@ -256,7 +256,7 @@ Then:
    forge script script/MineSalt.s.sol --rpc-url $RPC --private-key $KEY --broadcast
    ```
 
-4. **Open trading.** `PleaLaunch.seed()` creates the pool at a 14,000 IMD market cap (5,700 on the Sepolia runs; at least that, within one 60-tick spacing: the band is aligned to the grid on the PLEA-only side) and starts the Cabal. The hook, the Letterbox and (with objections on) the Tribunal must exist first. PLEA's current owner may call it any time, and anyone may call it once `START` has passed.
+4. **Open trading.** `PleaLaunch.seed()` creates the pool at a 20,000 IMD market cap (5,700 on the Sepolia runs; at least that, within one 60-tick spacing: the band is aligned to the grid on the PLEA-only side) and starts the Cabal. The hook, the Letterbox and (with objections on) the Tribunal must exist first. PLEA's current owner may call it any time, and anyone may call it once `START` has passed.
 
 **Ethereum mainnet settings** (`launch.json` on this branch, `mainnet`; `testnet8.5` is the same code with the Sepolia settings, before the two fixes of its launch audit (run 8.5, launch #1981), `testnet8` run 8's (not launched), `testnet7` run 7's (launch #1843), `testnet6` run 6's, `testnet4` run 4's (launch #1466), `testnet3` run 3's (launch #1426), `testnet` run 2's):
 
@@ -274,7 +274,7 @@ Then:
 | `START` | 1795532400 = Tue 2026-11-24 15:00 UTC (anyone may seed from then; the owner may seed earlier) |
 | Cashback credit gas | 400,000 (a first credit measured 197k–249k on a mainnet fork) |
 | Letterbox | buys the 0.5 IMD oracle fee with the writer's PLEA, with the tip (`mintOracleFee = false`) |
-| Seed | 14,000 IMD market cap (`PleaHook.MARKET_CAP_IMD`; 5,700 on the Sepolia runs) |
+| Seed | 20,000 IMD market cap (`PleaHook.MARKET_CAP_IMD`; 5,700 on the Sepolia runs; on chain 1 `seed` refuses a hook under 14,000) |
 | Owner | `0x5BF3597216f9019Cf10CF680783289Efc8639Bf0` (PLEA's launch owner: it receives the hook's 1% owner fee and sets the distributor's root once; it cannot play seasons) |
 
 The manifest rehearsal measures the launch as the chain charges it (the init codes as transaction data, then their execution) plus the overhead of IMD's real factory, measured by sending these five codes through the mainnet ProjectFactory on a fork (994,547 gas; the test adds 1.1M): about **13.49M gas**, and about **16.46M** with the 22% headroom IMD's deployer adds to a gas limit, under the 16,777,216 cap; the test asserts it. `deployLetterbox` is its own transaction of about **5.58M** gas, and `deployTribunal` about **5.27M**, `deployHook` about **5.4M** on Ethereum's schedule. `test/fork/ForkTestnet.t.sol` rehearses the whole run on a Sepolia fork against the live Intake v2:
