@@ -64,7 +64,7 @@ contract MainnetGuardTest is MainnetGuardBase {
 
 /// @dev Round 8 (R8-A3-1): with the agreed clock, `seed` on chain id 1 also refuses a hook built with
 /// the Sepolia opening market cap (the compile-time `MARKET_CAP_IMD`, 5,700 IMD); the mainnet
-/// branch's 14,000 opens.
+/// branch's 20,000 opens.
 contract MainnetMarketCapGuardTest is MainnetGuardBase {
     function setTimings() internal override {
         SEASON = 15 days;
