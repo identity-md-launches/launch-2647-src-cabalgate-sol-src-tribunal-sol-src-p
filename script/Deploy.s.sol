@@ -15,8 +15,8 @@ import {PleaLaunch} from "../src/PleaLaunch.sol";
 /// @notice What the IMD launch does, as one script, for local runs and gas checks (a fork or anvil).
 /// The real launch deploys the same five contracts in this order in one transaction (launch.json);
 /// the Letterbox follows in its own transaction through `PleaLaunch.deployLetterbox`, as here.
-/// Env: OWNER, INTAKE, ORACLE_ASSET, IMD, ORACLE_SIGNER, SEASON, DEADMAN, POOL_MANAGER, STACKER,
-/// CREDIT_GAS, START, MINT_ORACLE_FEE.
+/// Env: OWNER, INTAKE, ORACLE_ASSET, IMD, ORACLE_SIGNER, SEASON, DEADMAN, SEAT (the seat NFT: Seasons' 1.2x),
+/// POOL_MANAGER, STACKER, CREDIT_GAS, START, MINT_ORACLE_FEE.
 contract Deploy is Script {
     function run() external {
         vm.startBroadcast();
@@ -38,7 +38,7 @@ contract Deploy is Script {
         Seasons seasons = Seasons(
             ArtifactDeployment.deploy(
                 "Seasons.sol:Seasons",
-                abi.encode(address(plea), address(gate), vm.envAddress("IMD"), vm.envOr("SEAT", address(0)))
+                abi.encode(address(plea), address(gate), vm.envAddress("IMD"), vm.envAddress("SEAT"))
             )
         );
         PleaDistributor distributor = PleaDistributor(
